@@ -34,7 +34,7 @@ export default defineConfig({
       // non-E.164-formatted value leak into and fail this suite.
       NOTIFY_TO_PHONE_NUMBER: '+15557654321',
       NOTIFY_FROM_PHONE_NUMBER: '+15551234567',
-      MCP_API_KEY: 'test-mcp-key',
+      MCP_API_KEY: 'test-mcp-key-do-not-use-in-prod-1',
       ASSISTANT_PRINCIPAL_NAME: 'Alex',
     },
   },

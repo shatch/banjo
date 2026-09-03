@@ -8,7 +8,7 @@ const BASE_ENV = {
   TWILIO_AUTH_TOKEN: 'authtest',
   TWILIO_PHONE_NUMBER: '+15551234567',
   NOTIFICATION_CHANNEL: 'none',
-  MCP_API_KEY: 'test-mcp-key',
+  MCP_API_KEY: 'test-mcp-key-do-not-use-in-prod-1',
   ASSISTANT_PRINCIPAL_NAME: 'Alex',
 };
 
@@ -86,6 +86,11 @@ describe('config: env schema', () => {
 
   it('requires MCP_API_KEY to be non-empty', async () => {
     setEnv({ MCP_API_KEY: '' });
+    await expect(import('../src/config/index.js')).rejects.toThrow();
+  });
+
+  it('rejects an MCP_API_KEY shorter than 32 characters — the endpoint is internet-reachable, so a short key is brute-forceable', async () => {
+    setEnv({ MCP_API_KEY: 'short-key' });
     await expect(import('../src/config/index.js')).rejects.toThrow();
   });
 

@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context, Hono } from 'hono';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -157,8 +158,16 @@ function alreadySentResponse(): Response {
 }
 
 function requireAuth(c: Context): boolean {
-  const authHeader = c.req.header('Authorization');
-  return authHeader === `Bearer ${config.MCP_API_KEY}`;
+  const authHeader = c.req.header('Authorization') ?? '';
+  const expected = `Bearer ${config.MCP_API_KEY}`;
+  const provided = Buffer.from(authHeader);
+  const wanted = Buffer.from(expected);
+  // Length must match before timingSafeEqual (it throws on a length mismatch),
+  // but comparing full buffer contents in constant time — rather than the
+  // plain `===` this replaces — prevents a remote attacker from inferring
+  // the key character-by-character via response-time differences.
+  if (provided.length !== wanted.length) return false;
+  return timingSafeEqual(provided, wanted);
 }
 
 /**

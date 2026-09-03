@@ -84,7 +84,11 @@ const envSchema = z
     NOTIFY_TO_PHONE_NUMBER: e164,
     NOTIFY_FROM_PHONE_NUMBER: e164,
 
-    MCP_API_KEY: z.string().min(1, 'MCP_API_KEY is required — the MCP endpoint is internet-reachable'),
+    // 32-char floor (not just non-empty): the MCP endpoint is internet-reachable,
+    // so a short key is brute-forceable. RUNBOOKS.md recommends `openssl rand -hex 32`.
+    MCP_API_KEY: z
+      .string()
+      .min(32, 'MCP_API_KEY must be at least 32 characters — the MCP endpoint is internet-reachable'),
 
     TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(8000),
 
