@@ -1,3 +1,5 @@
+<img src="assets/logo.png" alt="Banjo logo" width="160" align="right">
+
 # Banjo
 
 An open-source AI executive assistant that places real outbound phone calls on your behalf — books
