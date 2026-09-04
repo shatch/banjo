@@ -26,6 +26,22 @@ Banjo needs three things before it can place a real call — get these first:
    carried live call traffic the way the OpenAI path has. Get an API key from whichever you pick.
 3. **A Google Calendar OAuth client + refresh token**, if you want live calendar-aware booking (see
    `docs/ARCHITECTURE.md`'s Calendar section for how this is wired).
+4. **A publicly reachable hostname for your local server.** Twilio calls back into Banjo over plain HTTPS
+   (webhooks) and a WebSocket (the audio Media Stream), so it needs a real internet-facing hostname even in
+   local dev — `localhost` won't work. The quickest way:
+
+   ```bash
+   ngrok http 3000   # or whatever PORT you set
+   ```
+
+   Take the hostname ngrok prints (e.g. `abcd1234.ngrok-free.app`, no `https://` prefix) and set it as
+   `PUBLIC_HOSTNAME` in `.env`. Other options, roughly in order of effort:
+
+   | Option | When to use it |
+   | --- | --- |
+   | [ngrok](https://ngrok.com) | Local dev, quickest to set up. Free tier URLs rotate on every restart — update `PUBLIC_HOSTNAME` each time, or use a paid static domain. |
+   | [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) (`cloudflared`) | Local dev with a stable hostname you control, free, tied to a domain you own in Cloudflare. |
+   | Reverse-proxy through a real deployment (e.g. an ALB, as the `.env.example` default hints) | Once Banjo is running as a persistent service rather than on your laptop — see `docs/RUNBOOKS.md`. |
 
 Then:
 
