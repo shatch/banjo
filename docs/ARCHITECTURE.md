@@ -6,6 +6,8 @@ Banjo is the phone-calling half of a two-part system that lets you hand errands 
 
 **The other half is a Claude Code skill** (`schedule-appointment`, installed globally as a Claude Code skill wherever you set it up, e.g. `~/.claude/skills/schedule-appointment/SKILL.md` — not part of this repo). See [Skill vs. service split](#skill-vs-service-split) for why the system is split this way and what each half owns.
 
+![Banjo runtime architecture — primary outbound-call path, the inbound path bypassing the orchestrator, provider abstractions, and trust boundaries](architecture-diagram.png)
+
 ---
 
 ## Skill vs. service split

@@ -14,6 +14,8 @@ against your own Twilio number, your own calendar, your own voice AI credentials
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md)
 for operational procedures.
 
+[![Banjo runtime architecture](docs/architecture-diagram.png)](docs/ARCHITECTURE.md)
+
 ## Quickstart
 
 Banjo needs three things before it can place a real call — get these first:
