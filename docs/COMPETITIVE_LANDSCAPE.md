@@ -68,6 +68,51 @@ Either is an **incremental adapter behind the current `VoiceAIProvider`/`Telepho
 rewrite of `callSession.ts` or anything above it — the abstraction boundary already exists for exactly this
 reason. Revisit only when one of the trigger conditions above is real, not pre-emptively.
 
+## Feature roadmap: two-way SMS with contacts
+
+Today's SMS (`src/notifications/twilioSms.ts`) is one-way and owner-facing only — task-outcome summaries and
+ad-hoc alerts sent *to* `NOTIFY_TO_PHONE_NUMBER`. It has no relationship to the contact being called and can't
+carry a conversation. A genuinely new capability — negotiating or confirming a booking over text with the
+*contact*, not the owner — would be a real differentiator: none of the surveyed projects offer a contact-facing
+texting channel either (this wasn't a dedicated search target, so treat as directionally true, not verified).
+Also directly useful on its own: plenty of real businesses (salons, restaurants) are text-first and don't pick
+up calls from unknown numbers at all.
+
+**Why it's not a small bolt-on:** the call path's whole shape — realtime audio, `VoiceAIProvider`'s
+audio-chunk/turn-taking events, the silence/tool-call watchdogs — doesn't apply to text. A text conversation
+also isn't bounded by "the call is still connected"; it can go quiet for hours between replies. This needs a
+parallel, simpler orchestration path, not a mode flag inside `callSession.ts`.
+
+What it would take, roughly in dependency order:
+
+1. **Inbound SMS webhook.** New Hono route (analogous to Twilio's existing voice/AMD webhooks in
+   `src/server.ts`) verifying Twilio's signature, parsing `From`/`Body`, and looking up the task by phone
+   number + open text-conversation state.
+2. **A text-session driver**, structurally much simpler than `CallSession`: no audio pipeline, no VAD race —
+   just "append inbound message → run one LLM tool-calling turn → send outbound reply and/or transition task
+   state." Could reuse the same Zod tool schemas from `src/voice/tools/callTools.ts` where the tool is
+   content-agnostic (`confirm_appointment`, `escalate_and_end_call`-equivalents), converted through the
+   existing `defineVoiceTool.ts` JSON-Schema path (or a renamed, provider-agnostic sibling) rather than
+   duplicating tool definitions.
+3. **New persistence**, mirroring how `call_attempts` is deliberately kept separate from a task's business
+   outcome: a `text_attempts`-shaped table (message log, direction, timestamps) alongside `tasks`/`contacts` in
+   `src/tasks/schema.ts` / a new `src/texting/schema.ts`. `transitionTask` (`src/tasks/service.ts`) stays the
+   only writer of task status/outcome, unchanged.
+4. **Orchestrator awareness.** `src/tasks/orchestrator.ts`'s state machine needs a channel dimension (phone vs.
+   sms) and, since texting isn't bounded like a call, a reply-timeout that escalates or fails a task after N
+   hours of silence — the existing periodic poller (already self-healing across restarts) is the natural place
+   to drive this, not a new watchdog class.
+5. **Contact model.** `contacts.preferredChannel` (currently online vs. phone) needs a third value, or a
+   separate `acceptsSms` capability flag distinct from channel preference, since a contact could accept both a
+   call and a text.
+6. **MCP surface.** `placeCall` either grows a `channel` param or gets an analogous `sendText`/`startTextTask`
+   tool; `getTaskStatus`/`listRecentTasks` are already channel-agnostic and need no change.
+
+**Rough sizing:** not a quick patch — new provider-shaped abstraction, new webhook surface, new schema +
+migration, and a new (if simpler) orchestration path with its own tests mirroring existing conventions
+(`tests/texting/...` mocking at the interface boundary, matching `tests/session/callSession.test.ts`'s
+pattern). Comparable in shape to the original inbound-calling feature (`src/inbound/`), not a few-hour addition.
+
 ## White space (lower confidence — worth leaning into, not yet confirmed as unclaimed)
 
 - **MCP-server bridge to an AI coding assistant** — no verified competing project exposes outbound calling as
