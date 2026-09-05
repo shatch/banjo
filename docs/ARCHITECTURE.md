@@ -224,6 +224,8 @@ Zod-validated env schema (`src/config/index.ts`), parsed and validated at proces
 
 This list was written at design time, before any real-call testing had happened. Since then the project has been almost entirely live-call-driven (place a real call → read logs → fix the exact root cause), which has resolved some of these items and left others untouched. Triaged below by what actually needs doing next, not by original numbering.
 
+See also [`docs/COMPETITIVE_LANDSCAPE.md`](COMPETITIVE_LANDSCAPE.md): a research pass comparing this project's `src/voice/`/`src/telephony/` abstraction against dedicated open-source frameworks (Pipecat, LiveKit Agents, Vocode, Bolna) that solve the same problem, and the roadmap for if/when wrapping one of them underneath the existing `VoiceAIProvider`/`TelephonyProvider` interfaces becomes worth doing.
+
 ### Must fix before any use beyond your own local live-testing
 
 _(none currently open — #14 below was the one item here, now fixed)_

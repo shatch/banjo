@@ -11,8 +11,9 @@ own number for people who want to book, check, or reschedule an appointment with
 version you can actually read, run yourself, and change. Single-tenant by design: you run your own instance
 against your own Twilio number, your own calendar, your own voice AI credentials. Fork it and make it yours.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md)
-for operational procedures.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design, [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md)
+for operational procedures, and [`docs/COMPETITIVE_LANDSCAPE.md`](docs/COMPETITIVE_LANDSCAPE.md) for how Banjo
+compares to other open-source projects in this space and the roadmap for its voice/telephony abstraction.
 
 [![Banjo runtime architecture](docs/architecture-diagram.png)](docs/ARCHITECTURE.md)
 
