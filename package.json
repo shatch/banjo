@@ -28,6 +28,7 @@
     "drizzle-orm": "^0.45.2",
     "googleapis": "^178.0.0",
     "hono": "^4.6.13",
+    "libphonenumber-js": "^1.13.12",
     "pino": "^9.5.0",
     "pino-pretty": "^13.0.0",
     "postgres": "^3.4.5",
