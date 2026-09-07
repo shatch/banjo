@@ -70,4 +70,33 @@ describe('buildInboundSystemPrompt', () => {
     expect(prompt.toLowerCase()).toContain("can't be moved");
     expect(prompt.toLowerCase()).toContain('proactively offer to flag it for alex');
   });
+
+  it('produces byte-for-byte the same prompt with no caller context as with an explicit undefined', () => {
+    expect(buildInboundSystemPrompt()).toBe(buildInboundSystemPrompt(undefined));
+  });
+
+  it('adds a warm, name-based greeting instruction for a family-tier caller, without changing capability', () => {
+    const withFamily = buildInboundSystemPrompt({ displayName: 'Mom', relationshipTier: 'family', isFrequent: false });
+    expect(withFamily).toContain('Mom');
+    expect(withFamily.toLowerCase()).toContain('family member');
+    expect(withFamily.toLowerCase()).toContain('warmly');
+    // Capability is unchanged — the same booking tools/instructions still appear.
+    expect(withFamily).toContain('book_appointment');
+    expect(withFamily).toContain('find_my_booking');
+  });
+
+  it('adds a "welcome back" instruction for a frequent, untiered caller', () => {
+    const withFrequent = buildInboundSystemPrompt({ displayName: 'Regular Client', relationshipTier: null, isFrequent: true });
+    expect(withFrequent).toContain('Regular Client');
+    expect(withFrequent.toLowerCase()).toContain('welcome back');
+  });
+
+  it('does not personalize for a recognized-but-ordinary, infrequent caller', () => {
+    // No relationshipTier and not frequent — greetingContext itself
+    // shouldn't be constructed for this case (see callerContext.test.ts),
+    // but the prompt builder must also produce the generic prompt if it
+    // somehow were passed one with both signals false.
+    const result = buildInboundSystemPrompt({ displayName: 'Anyone', relationshipTier: null, isFrequent: false });
+    expect(result).toBe(buildInboundSystemPrompt());
+  });
 });

@@ -30,7 +30,7 @@ import { inboundBookings, inboundCalls, type InboundBooking, type InboundCall } 
 // rolled back.
 export const E164_PATTERN = /^\+[1-9]\d{1,14}$/;
 
-export async function createInboundCall(input: { twilioCallSid: string; callerPhoneNumber: string }): Promise<InboundCall> {
+export async function createInboundCall(input: { twilioCallSid: string; callerPhoneNumber: string; contactId?: string }): Promise<InboundCall> {
   const [row] = await db.insert(inboundCalls).values(input).returning();
   if (!row) throw new Error('Failed to insert inbound call');
   return row;
