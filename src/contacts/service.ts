@@ -8,6 +8,9 @@ export async function addContact(input: {
   category?: NewContact['category'];
   notes?: string;
   bookingUrl?: string;
+  email?: string;
+  googleResourceName?: string;
+  relationshipTier?: NewContact['relationshipTier'];
 }): Promise<Contact> {
   const [row] = await db
     .insert(contacts)
@@ -17,6 +20,9 @@ export async function addContact(input: {
       category: input.category ?? 'other',
       notes: input.notes,
       bookingUrl: input.bookingUrl,
+      email: input.email,
+      googleResourceName: input.googleResourceName,
+      relationshipTier: input.relationshipTier,
     })
     .returning();
   if (!row) throw new Error('Failed to insert contact');
@@ -25,7 +31,20 @@ export async function addContact(input: {
 
 export async function updateContact(
   id: string,
-  patch: Partial<Pick<NewContact, 'preferredChannel' | 'bookingUrl' | 'notes' | 'displayName' | 'phoneNumber' | 'category'>>,
+  patch: Partial<
+    Pick<
+      NewContact,
+      | 'preferredChannel'
+      | 'bookingUrl'
+      | 'notes'
+      | 'displayName'
+      | 'phoneNumber'
+      | 'category'
+      | 'email'
+      | 'googleResourceName'
+      | 'relationshipTier'
+    >
+  >,
 ): Promise<Contact> {
   const [row] = await db
     .update(contacts)
@@ -45,6 +64,12 @@ export async function listContacts(category?: Contact['category']): Promise<Cont
 
 export async function getContact(id: string): Promise<Contact | undefined> {
   const [row] = await db.select().from(contacts).where(eq(contacts.id, id));
+  return row;
+}
+
+/** The dedupe/lookup key src/googleContacts/reconcile.ts and inbound caller-ID resolution rely on. */
+export async function getContactByPhoneNumber(phoneNumber: string): Promise<Contact | undefined> {
+  const [row] = await db.select().from(contacts).where(eq(contacts.phoneNumber, phoneNumber));
   return row;
 }
 
