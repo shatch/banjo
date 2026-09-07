@@ -56,6 +56,21 @@ npm run db:generate && npm run db:migrate
 npm run dev
 ```
 
+## Companion Claude Code skill
+
+Banjo only handles the phone-calling half of "get this errand done." The other half — deciding
+whether to book online or by phone, and driving the online booking flow via browser automation —
+is a Claude Code skill that ships alongside this repo at [`skills/schedule-appointment/`](skills/schedule-appointment/SKILL.md).
+Install it by symlinking (not copying) into your Claude Code skills directory, so future edits to
+the skill stay live without a separate sync step:
+
+```bash
+ln -s "$(pwd)/skills/schedule-appointment" ~/.claude/skills/schedule-appointment
+```
+
+The skill reads `$ASSISTANT_PRINCIPAL_NAME` for how to address you, matching the same env var
+Banjo's backend uses — set it once in your shell/`.env` and both halves stay consistent.
+
 ## Stack
 
 Node 22, TypeScript (strict, ESM), Hono (HTTP) + raw `ws` (media-stream audio), Drizzle ORM + Postgres, Zod,
@@ -89,6 +104,9 @@ src/
   mcp/           remote MCP server for tool-calling clients (e.g. Claude Code)
   session/       per-call state machine wiring telephony <-> voice AI <-> tools
   notifications/ outcome notifications (SMS by default)
+skills/
+  schedule-appointment/  companion Claude Code skill — decides online vs. phone, drives online
+                          booking via browser automation, calls into src/mcp/ for the phone path
 ```
 
 ## License

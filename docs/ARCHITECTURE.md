@@ -4,7 +4,7 @@
 
 Banjo is the phone-calling half of a two-part system that lets you hand errands to Claude in normal conversation — "Schedule a haircut with Clauda," "Schedule an appointment with Dr. Smith," "Make a reservation at Luigi's for Friday at 7pm" — and have them actually get done. This half handles the outbound-calling flow described below; Banjo also supports an inbound booking line — see `src/inbound/` — gated behind `INBOUND_BOOKING_ENABLED` until you're ready to expose it.
 
-**The other half is a Claude Code skill** (`schedule-appointment`, installed globally as a Claude Code skill wherever you set it up, e.g. `~/.claude/skills/schedule-appointment/SKILL.md` — not part of this repo). See [Skill vs. service split](#skill-vs-service-split) for why the system is split this way and what each half owns.
+**The other half is a Claude Code skill** (`schedule-appointment`, shipped in this repo at [`skills/schedule-appointment/SKILL.md`](../skills/schedule-appointment/SKILL.md) — symlink it into `~/.claude/skills/schedule-appointment` to install). See [Skill vs. service split](#skill-vs-service-split) for why the system is split this way and what each half owns.
 
 ![Banjo runtime architecture — primary outbound-call path, the inbound path bypassing the orchestrator, provider abstractions, and trust boundaries](architecture-diagram.png)
 
