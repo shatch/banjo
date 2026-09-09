@@ -193,6 +193,12 @@ This is a deliberate duplication, not an oversight — the two paths genuinely c
 
 ---
 
+## Google Contacts (`src/googleContacts/`)
+
+- **`src/googleContacts/`** — Google People API integration (same OAuth client as `src/calendar/`, a broader granted scope). A periodic full sync keeps a local cache of the principal's Google Contacts fresh; a cache-first lookup layer (with a live-API fallback on a miss, bounded by a hard timeout) resolves phone numbers/names for both directions — outbound `find_contact` and inbound caller ID — and auto-provisions/backfills matches into `src/contacts/`. See `docs/superpowers/specs/2026-09-07-google-contacts-integration-design.md` for the full design.
+
+---
+
 ## MCP server (`src/mcp/`)
 
 Exposed over **HTTP/SSE (remote MCP)**, since Banjo runs as a persistent AWS service rather than being spawned locally by Claude Code — the endpoint requires a bearer token (`MCP_API_KEY`) since it's internet-reachable. Tools:
