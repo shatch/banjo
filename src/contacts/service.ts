@@ -1,5 +1,7 @@
 import { eq, ilike, or } from 'drizzle-orm';
 import { db } from '../db/index.js';
+import { findByName } from '../googleContacts/lookup.js';
+import { provisionLocalContact } from '../googleContacts/reconcile.js';
 import { contacts, type Contact, type NewContact } from './schema.js';
 
 export async function addContact(input: {
@@ -89,5 +91,11 @@ export async function findContact(query: string): Promise<FindContactResult> {
     .select()
     .from(contacts)
     .where(or(ilike(contacts.displayName, `%${query}%`), ilike(contacts.notes, `%${query}%`)));
-  return { bestMatch: matches[0], alternates: matches.slice(1) };
+  if (matches.length > 0) {
+    return { bestMatch: matches[0], alternates: matches.slice(1) };
+  }
+
+  const googleMatches = await findByName(query);
+  const provisioned = await Promise.all(googleMatches.map((m) => provisionLocalContact(m)));
+  return { bestMatch: provisioned[0], alternates: provisioned.slice(1) };
 }
