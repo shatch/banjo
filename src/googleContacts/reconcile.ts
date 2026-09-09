@@ -1,10 +1,20 @@
 import postgres from 'postgres';
-import { addContact, getContactByPhoneNumber, updateContact } from '../contacts/service.js';
+import {
+  addContact,
+  getContactByGoogleResourceName,
+  getContactByPhoneNumber,
+  updateContact,
+} from '../contacts/service.js';
 import type { Contact, NewContact } from '../contacts/schema.js';
 import type { GoogleContactMatch } from './lookup.js';
 
 const PG_UNIQUE_VIOLATION = '23505';
-const PHONE_NUMBER_UNIQUE_CONSTRAINT = 'contacts_phone_number_unique';
+// Both unique indexes on `contacts` (added in Task 1) are reachable from
+// provisioning: the phone-number one on a concurrent insert of the same new
+// person, and the google-resource-name one when a Google contact's phone
+// number changed (the cache row moved to the new number, but the previously
+// provisioned local row still holds the old number AND this resourceName).
+const CONTACTS_UNIQUE_CONSTRAINTS = new Set(['contacts_phone_number_unique', 'contacts_google_resource_name_unique']);
 
 const FAMILY_RELATION_TYPES = new Set([
   'spouse',
@@ -48,10 +58,14 @@ function deriveRelationshipTier(match: GoogleContactMatch): Contact['relationshi
  * tests/googleContacts/reconcile.test.ts failed with an uncaught
  * DrizzleQueryError until this unwrap was added.
  */
-function isPhoneNumberUniqueViolation(err: unknown): boolean {
+function isContactsUniqueViolation(err: unknown): boolean {
   const cause = err instanceof Error ? (err as { cause?: unknown }).cause : undefined;
   const pgErr = err instanceof postgres.PostgresError ? err : cause instanceof postgres.PostgresError ? cause : undefined;
-  return pgErr?.code === PG_UNIQUE_VIOLATION && pgErr.constraint_name === PHONE_NUMBER_UNIQUE_CONSTRAINT;
+  return (
+    pgErr?.code === PG_UNIQUE_VIOLATION &&
+    pgErr.constraint_name !== undefined &&
+    CONTACTS_UNIQUE_CONSTRAINTS.has(pgErr.constraint_name)
+  );
 }
 
 /**
@@ -71,7 +85,16 @@ export async function provisionLocalContact(match: GoogleContactMatch): Promise<
     if (!existing.googleResourceName) patch.googleResourceName = match.googleResourceName;
     if (!existing.relationshipTier && relationshipTier) patch.relationshipTier = relationshipTier;
     if (Object.keys(patch).length === 0) return existing;
-    return updateContact(existing.id, patch);
+    try {
+      return await updateContact(existing.id, patch);
+    } catch (err) {
+      // Same rationale as the insert-path race below: another row may already
+      // claim this googleResourceName (e.g. the Google contact's number
+      // changed and the old row still holds it). A missed additive backfill
+      // must not fail the whole caller-ID resolution.
+      if (isContactsUniqueViolation(err)) return existing;
+      throw err;
+    }
   }
 
   try {
@@ -87,9 +110,14 @@ export async function provisionLocalContact(match: GoogleContactMatch): Promise<
     // ActiveBookingConflictError in src/inbound/service.ts) — a concurrent
     // provisionLocalContact call for the same new person already won the
     // insert, so resolve to that row instead of failing.
-    if (isPhoneNumberUniqueViolation(err)) {
+    if (isContactsUniqueViolation(err)) {
       const raced = await getContactByPhoneNumber(match.phoneNumber);
       if (raced) return raced;
+      // Or the googleResourceName index rejected us: this Google person is
+      // already provisioned under a different (stale) phone number. Resolve
+      // to that row rather than failing — it's the same human.
+      const byResourceName = await getContactByGoogleResourceName(match.googleResourceName);
+      if (byResourceName) return byResourceName;
     }
     throw err;
   }

@@ -5,6 +5,19 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // The DB-backed suites (tests/contacts/service.test.ts,
+    // tests/googleContacts/{reconcile,lookup,sync}.test.ts,
+    // tests/inbound/callerContext.test.ts) all point DATABASE_URL at the SAME
+    // real local Postgres and truncate the same shared tables (`contacts`
+    // above all) in beforeEach. Run in parallel worker processes, one file's
+    // truncation deletes rows another file's test just inserted, producing
+    // failures ("Contact not found: <uuid>", a just-created contact suddenly
+    // not matching) that move around between runs and have nothing to do with
+    // the code under test. Serializing files is the fix — these suites are
+    // integration tests against one shared database, so they cannot be
+    // isolated by process. Costs a few seconds of wall clock; buys a suite
+    // whose failures actually mean something.
+    fileParallelism: false,
     // Most modules transitively import src/config, which validates its env
     // schema at import time. These give every test file a consistent, valid
     // baseline env (no real credentials — nothing here talks to a live

@@ -140,8 +140,12 @@ app.post('/telephony/twilio/inbound', async (c) => {
   }
 
   telephony.registerInboundCall(callSid, from);
-  const { contactId, greetingContext } = await resolveCallerContext(from);
   try {
+    // Inside the try (not before it) as defense in depth: resolveCallerContext
+    // is itself written to fail closed and never throw, but if any lookup path
+    // in it ever does, the catch below still rolls the registration back rather
+    // than latching isAnyCallActive() to true for the life of the process.
+    const { contactId, greetingContext } = await resolveCallerContext(from);
     const inboundCall = await createInboundCall({ twilioCallSid: callSid, callerPhoneNumber: from, contactId });
 
     // Fire-and-forget, matching src/tasks/orchestrator.ts's triggerOrchestration

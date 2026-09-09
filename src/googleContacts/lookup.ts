@@ -34,6 +34,17 @@ function toMatch(row: GoogleContact, phoneNumber: string | undefined): GoogleCon
   };
 }
 
+/**
+ * Which of a contact's numbers to report as "the" match. people.searchContacts
+ * matches fuzzily and a contact can hold several numbers (mobile + home), so
+ * when we searched for a specific number, that number — not whichever one
+ * happens to be stored first — is the one that identifies this caller.
+ */
+function pickPhoneNumber(row: GoogleContact, preferE164: string | undefined): string | undefined {
+  if (preferE164 && row.phoneNumbers.some((p) => p.e164 === preferE164)) return preferE164;
+  return row.phoneNumbers[0]?.e164;
+}
+
 async function findCachedByPhone(e164: string): Promise<GoogleContactMatch | undefined> {
   const rows = await db.select().from(googleContacts);
   for (const row of rows) {
@@ -63,7 +74,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   }
 }
 
-async function liveSearch(query: string): Promise<GoogleContactMatch[]> {
+async function liveSearch(query: string, preferE164?: string): Promise<GoogleContactMatch[]> {
   const people = createPeopleClient();
   const { data } = await people.people.searchContacts({ query, readMask: 'names,phoneNumbers,emailAddresses,relations,memberships' });
   const groupLabelsByResourceName = await fetchGroupLabels(people);
@@ -75,7 +86,7 @@ async function liveSearch(query: string): Promise<GoogleContactMatch[]> {
     await upsertGoogleContact(person, groupLabelsByResourceName); // cache the hit for next time
     const [row] = await db.select().from(googleContacts).where(eq(googleContacts.googleResourceName, person.resourceName));
     if (row) {
-      const match = toMatch(row, row.phoneNumbers[0]?.e164);
+      const match = toMatch(row, pickPhoneNumber(row, preferE164));
       if (match) matches.push(match);
     }
   }
@@ -85,8 +96,12 @@ async function liveSearch(query: string): Promise<GoogleContactMatch[]> {
 export async function findByPhone(e164: string, timeoutMs = INBOUND_LOOKUP_TIMEOUT_MS): Promise<GoogleContactMatch | undefined> {
   const cached = await findCachedByPhone(e164);
   if (cached) return cached;
-  const live = await withTimeout(liveSearch(e164), timeoutMs);
-  return live?.find((m) => m.phoneNumber === e164) ?? live?.[0];
+  const live = await withTimeout(liveSearch(e164, e164), timeoutMs);
+  // No `?? live[0]` fallback: people.searchContacts matches fuzzily, so a
+  // result that doesn't actually hold the queried number is a different
+  // person. Returning them would auto-provision a stranger's contact row and
+  // personalize the greeting for the wrong caller — fail closed instead.
+  return live?.find((m) => m.phoneNumber === e164);
 }
 
 export async function findByName(query: string, timeoutMs = OUTBOUND_LOOKUP_TIMEOUT_MS): Promise<GoogleContactMatch[]> {

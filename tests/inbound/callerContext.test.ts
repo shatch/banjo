@@ -93,6 +93,23 @@ describe('resolveCallerContext', () => {
     expect(result.greetingContext).toBeUndefined();
   });
 
+  it("does not personalize a contact whose displayName is the 'Unknown' placeholder, even at family tier", async () => {
+    // src/googleContacts/sync.ts defaults a nameless Google contact to
+    // 'Unknown' — speaking it aloud would produce "Hi Unknown!".
+    const contact = await addContact({ displayName: 'Unknown', phoneNumber: '+15557778888', relationshipTier: 'family' });
+    const result = await resolveCallerContext('+15557778888');
+    expect(result.contactId).toBe(contact.id);
+    expect(result.greetingContext).toBeUndefined();
+  });
+
+  it('fails closed to no match, without throwing, when a lookup errors', async () => {
+    findByPhone.mockRejectedValue(new Error('db unavailable'));
+    await expect(resolveCallerContext('+15550001111')).resolves.toEqual({
+      contactId: undefined,
+      greetingContext: undefined,
+    });
+  });
+
   it('auto-provisions from a Google match on a local miss', async () => {
     findByPhone.mockResolvedValue({
       googleResourceName: 'people/c1',

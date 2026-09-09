@@ -116,4 +116,26 @@ describe('provisionLocalContact', () => {
     const rows = await db.select().from(contacts);
     expect(rows).toHaveLength(1);
   });
+
+  it("resolves to the already-provisioned row instead of throwing when a Google contact's phone number changed", async () => {
+    // The Google contact's number moved from +15551110000 to +15559990000, so
+    // the google_contacts cache row now carries the new number while the local
+    // contacts row still holds the old one plus this googleResourceName.
+    // getContactByPhoneNumber(newNumber) misses, so this goes down the INSERT
+    // branch, where addContact violates contacts_google_resource_name_unique —
+    // which must resolve to the existing row, not propagate.
+    const existing = await addContact({
+      displayName: 'Mom',
+      phoneNumber: '+15551110000',
+      googleResourceName: 'people/c1',
+      relationshipTier: 'family',
+    });
+
+    const result = await provisionLocalContact(match({ googleResourceName: 'people/c1', phoneNumber: '+15559990000' }));
+
+    expect(result.id).toBe(existing.id);
+    expect(result.phoneNumber).toBe('+15551110000'); // additive-only: never rewritten from Google
+    const rows = await db.select().from(contacts);
+    expect(rows).toHaveLength(1); // no duplicate row created
+  });
 });

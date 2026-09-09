@@ -159,6 +159,29 @@ describe('POST /telephony/twilio/inbound', () => {
     expect(sessionStart).not.toHaveBeenCalled();
   });
 
+  it('unregisters the call and declines when caller-context resolution throws', async () => {
+    // resolveCallerContext is written to fail closed and never throw, but if
+    // it ever does, it must not escape the handler's try — otherwise the
+    // rollback never runs and isAnyCallActive() latches true for the life of
+    // the process, silently declining every future inbound call.
+    config.INBOUND_BOOKING_ENABLED = true;
+    isAnyCallActive.mockReturnValue(false);
+    resolveCallerContext.mockRejectedValueOnce(new Error('db unavailable'));
+
+    const res = await app.request('/telephony/twilio/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': 'valid-signature' },
+      body: inboundWebhookBody({ CallSid: 'CA-inbound-4', From: '+15555550199' }),
+    });
+
+    expect(registerInboundCall).toHaveBeenCalledWith('CA-inbound-4', '+15555550199');
+    expect(unregisterInboundCall).toHaveBeenCalledWith('CA-inbound-4');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<Reject');
+    expect(createInboundCall).not.toHaveBeenCalled();
+    expect(sessionStart).not.toHaveBeenCalled();
+  });
+
   it('does not await session.start() before responding — the HTTP response must not block on the whole call', async () => {
     config.INBOUND_BOOKING_ENABLED = true;
     isAnyCallActive.mockReturnValue(false);

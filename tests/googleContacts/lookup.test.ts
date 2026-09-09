@@ -96,6 +96,54 @@ describe('findByPhone', () => {
     searchContacts.mockImplementation(() => new Promise(() => {})); // never resolves
     await expect(findByPhone('+15550000000', 10)).resolves.toBeUndefined();
   });
+
+  it('reports the queried number, not the first stored one, when the live hit matched a secondary number', async () => {
+    // Google matched this person on their home line, but their mobile is
+    // stored first. Reporting phoneNumbers[0] would provision/personalize
+    // under a number the caller isn't actually calling from.
+    searchContacts.mockResolvedValue({
+      data: {
+        results: [
+          {
+            person: {
+              resourceName: 'people/c5',
+              names: [{ displayName: 'Two Lines' }],
+              phoneNumbers: [
+                { value: '+15551110000', type: 'mobile' },
+                { value: '+15552220000', type: 'home' },
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    const result = await findByPhone('+15552220000');
+
+    expect(result?.displayName).toBe('Two Lines');
+    expect(result?.phoneNumber).toBe('+15552220000');
+  });
+
+  it('returns undefined when the fuzzy live search only returns people who do not hold the queried number', async () => {
+    // people.searchContacts matches fuzzily — returning its first result
+    // regardless would hand back an unrelated person, who would then be
+    // auto-provisioned and used to personalize the greeting for the wrong caller.
+    searchContacts.mockResolvedValue({
+      data: {
+        results: [
+          {
+            person: {
+              resourceName: 'people/c6',
+              names: [{ displayName: 'Unrelated Person' }],
+              phoneNumbers: [{ value: '+15558887777' }],
+            },
+          },
+        ],
+      },
+    });
+
+    await expect(findByPhone('+15550001111')).resolves.toBeUndefined();
+  });
 });
 
 describe('findByName', () => {

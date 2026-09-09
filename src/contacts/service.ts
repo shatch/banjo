@@ -75,6 +75,18 @@ export async function getContactByPhoneNumber(phoneNumber: string): Promise<Cont
   return row;
 }
 
+/**
+ * The second dedupe key src/googleContacts/reconcile.ts relies on: the
+ * contacts_google_resource_name_unique index means a Google person can only
+ * ever claim one local row, so a provisioning attempt rejected on that index
+ * resolves to whichever row already holds it (e.g. after the Google contact's
+ * phone number changed).
+ */
+export async function getContactByGoogleResourceName(googleResourceName: string): Promise<Contact | undefined> {
+  const [row] = await db.select().from(contacts).where(eq(contacts.googleResourceName, googleResourceName));
+  return row;
+}
+
 export interface FindContactResult {
   bestMatch: Contact | undefined;
   alternates: Contact[];

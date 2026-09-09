@@ -5,6 +5,7 @@ import type { Contact } from '../contacts/schema.js';
 import { db } from '../db/index.js';
 import { findByPhone } from '../googleContacts/lookup.js';
 import { provisionLocalContact } from '../googleContacts/reconcile.js';
+import { logger } from '../lib/logger.js';
 import { tasks } from '../tasks/schema.js';
 import { inboundCalls } from './schema.js';
 import { E164_PATTERN } from './service.js';
@@ -33,28 +34,44 @@ async function countInteractions(contactId: string): Promise<number> {
  * Refuses to look anything up for a non-E.164 caller ID (Twilio's literal
  * "anonymous" for a withheld caller ID) — same guard the booking security
  * path already relies on.
+ *
+ * Fails closed to "no match" on ANY error: this runs on the call-answering
+ * hot path, where throwing would propagate out of src/server.ts's inbound
+ * webhook handler and (absent the rollback there) leave the call registered
+ * forever, latching isAnyCallActive() to true and silently declining every
+ * future inbound call. A missed greeting personalization is a cosmetic
+ * degradation; a permanently-dead inbound line is not.
  */
 export async function resolveCallerContext(callerPhoneNumber: string): Promise<ResolvedCaller> {
   if (!E164_PATTERN.test(callerPhoneNumber)) {
     return { contactId: undefined, greetingContext: undefined };
   }
 
-  let contact = await getContactByPhoneNumber(callerPhoneNumber);
-  if (!contact) {
-    const match = await findByPhone(callerPhoneNumber);
-    if (match) contact = await provisionLocalContact(match);
-  }
-  if (!contact) {
+  try {
+    let contact = await getContactByPhoneNumber(callerPhoneNumber);
+    if (!contact) {
+      const match = await findByPhone(callerPhoneNumber);
+      if (match) contact = await provisionLocalContact(match);
+    }
+    if (!contact) {
+      return { contactId: undefined, greetingContext: undefined };
+    }
+
+    const isFrequent = (await countInteractions(contact.id)) >= config.FREQUENT_CONTACT_THRESHOLD;
+    // src/googleContacts/sync.ts defaults a nameless Google contact's
+    // displayName to 'Unknown' — never speak that placeholder aloud
+    // ("Hi Unknown!"), so treat it as having no usable name at all.
+    const hasUsableName = contact.displayName !== 'Unknown';
+    const personalize = hasUsableName && (contact.relationshipTier !== null || isFrequent);
+
+    return {
+      contactId: contact.id,
+      greetingContext: personalize
+        ? { displayName: contact.displayName, relationshipTier: contact.relationshipTier, isFrequent }
+        : undefined,
+    };
+  } catch (err) {
+    logger.error({ err, callerPhoneNumber }, 'caller context resolution failed');
     return { contactId: undefined, greetingContext: undefined };
   }
-
-  const isFrequent = (await countInteractions(contact.id)) >= config.FREQUENT_CONTACT_THRESHOLD;
-  const personalize = contact.relationshipTier !== null || isFrequent;
-
-  return {
-    contactId: contact.id,
-    greetingContext: personalize
-      ? { displayName: contact.displayName, relationshipTier: contact.relationshipTier, isFrequent }
-      : undefined,
-  };
 }
