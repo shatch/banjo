@@ -138,4 +138,37 @@ describe('provisionLocalContact', () => {
     const rows = await db.select().from(contacts);
     expect(rows).toHaveLength(1); // no duplicate row created
   });
+
+  it("resolves to the already-linked row (not the stale one) when a phone-matched existing row's googleResourceName backfill races the same constraint", async () => {
+    // Row B already holds this Google person's link under their OLD phone
+    // number. Row A is a distinct local contact that happens to hold the
+    // Google contact's NEW phone number (e.g. Steve added it manually
+    // before the Google-side number change synced). getContactByPhoneNumber
+    // finds row A (not B) via the new number, so this goes down the UPDATE
+    // branch, where backfilling row A's googleResourceName collides with
+    // row B's contacts_google_resource_name_unique — which must resolve to
+    // B, the row actually linked to this Google person, not silently return
+    // the unpatched row A.
+    const rowB = await addContact({
+      displayName: 'Mom (old number)',
+      phoneNumber: '+15551110000',
+      googleResourceName: 'people/c1',
+      relationshipTier: 'family',
+    });
+    const rowA = await addContact({ displayName: 'Mom (new number)', phoneNumber: '+15559990000' });
+
+    const result = await provisionLocalContact(match({ googleResourceName: 'people/c1', phoneNumber: '+15559990000' }));
+
+    expect(result.id).toBe(rowB.id);
+    expect(result.id).not.toBe(rowA.id);
+  });
+
+  it('backfills a genuinely empty-string email, not just a present one', async () => {
+    const existing = await addContact({ displayName: 'Custom Name', phoneNumber: '+15559990000' });
+
+    const result = await provisionLocalContact(match({ email: '' }));
+
+    expect(result.id).toBe(existing.id);
+    expect(result.email).toBe('');
+  });
 });

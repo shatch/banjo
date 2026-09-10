@@ -1,6 +1,33 @@
 import { eq, ilike, or } from 'drizzle-orm';
+import postgres from 'postgres';
 import { db } from '../db/index.js';
 import { contacts, type Contact, type NewContact } from './schema.js';
+
+const PG_UNIQUE_VIOLATION = '23505';
+const CONTACTS_UNIQUE_CONSTRAINTS = new Set(['contacts_phone_number_unique', 'contacts_google_resource_name_unique']);
+
+/**
+ * drizzle-orm's postgres-js driver (src/pg-core/session.ts's
+ * queryWithCache) never lets a raw driver error escape — every query error
+ * is wrapped in drizzle's own `DrizzleQueryError`, with the original
+ * `postgres.PostgresError` attached as `.cause`. So the unique-violation
+ * check below must look at `err.cause`, not `err` itself; `err instanceof
+ * postgres.PostgresError` is never true for errors coming out of `db.insert`
+ * with this driver. Verified empirically: a race test in
+ * tests/googleContacts/reconcile.test.ts failed with an uncaught
+ * DrizzleQueryError until this unwrap was added. Shared by every caller that
+ * needs to react to either of `contacts`' two unique indexes rather than
+ * crash (src/googleContacts/reconcile.ts, src/mcp/tools/addContact.ts).
+ */
+export function isContactsUniqueViolation(err: unknown): boolean {
+  const cause = err instanceof Error ? (err as { cause?: unknown }).cause : undefined;
+  const pgErr = err instanceof postgres.PostgresError ? err : cause instanceof postgres.PostgresError ? cause : undefined;
+  return (
+    pgErr?.code === PG_UNIQUE_VIOLATION &&
+    pgErr.constraint_name !== undefined &&
+    CONTACTS_UNIQUE_CONSTRAINTS.has(pgErr.constraint_name)
+  );
+}
 
 export async function addContact(input: {
   displayName: string;

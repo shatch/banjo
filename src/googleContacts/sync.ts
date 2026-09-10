@@ -46,7 +46,12 @@ export async function upsertGoogleContact(
       return p.type ? { e164, type: p.type } : { e164 };
     })
     .filter((p): p is GooglePhoneNumber => p !== undefined);
-  const email = person.emailAddresses?.[0]?.value ?? undefined;
+  // `?? null`, not `?? undefined`: drizzle's onConflictDoUpdate set clause
+  // (below) filters out any key whose value is `undefined`, so an
+  // undefined email would silently leave a stale previously-cached address
+  // in place once Google stops reporting one. `null` is a real column
+  // value here and always makes it into the UPDATE.
+  const email = person.emailAddresses?.[0]?.value ?? null;
   const relationLabels = (person.relations ?? []).map((r) => r.type).filter((t): t is string => !!t);
   const groupLabels = (person.memberships ?? [])
     .map((m) => m.contactGroupMembership?.contactGroupResourceName)

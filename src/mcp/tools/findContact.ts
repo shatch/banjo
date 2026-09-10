@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { findContact } from '../../contacts/service.js';
 import { findByName } from '../../googleContacts/lookup.js';
 import { provisionLocalContact } from '../../googleContacts/reconcile.js';
+import { logger } from '../../lib/logger.js';
 import type { Contact } from '../../contacts/schema.js';
 
 export const findContactInputSchema = z.object({
@@ -31,15 +32,26 @@ export type FindContactResult =
  * helpers from service.ts for its own dedupe lookups, so service.ts can't
  * import back from reconcile.ts.
  */
+/**
+ * Google fallback is best-effort: a transient DB hiccup or Google API error
+ * here must degrade to "no Google match" rather than crash the whole
+ * find_contact call — a local miss plus a flaky fallback is still just a
+ * miss, not a tool failure.
+ */
+async function findGoogleFallback(query: string): Promise<{ bestMatch: Contact | undefined; alternates: Contact[] }> {
+  try {
+    const googleMatches = await findByName(query);
+    const provisioned = await Promise.all(googleMatches.map((m) => provisionLocalContact(m)));
+    return { bestMatch: provisioned[0], alternates: provisioned.slice(1) };
+  } catch (err) {
+    logger.error({ err, query }, 'find_contact Google fallback failed');
+    return { bestMatch: undefined, alternates: [] };
+  }
+}
+
 export async function findContactHandler(input: z.infer<typeof findContactInputSchema>): Promise<FindContactResult> {
   const localResult = await findContact(input.query);
-  const result = localResult.bestMatch
-    ? localResult
-    : await (async () => {
-        const googleMatches = await findByName(input.query);
-        const provisioned = await Promise.all(googleMatches.map((m) => provisionLocalContact(m)));
-        return { bestMatch: provisioned[0], alternates: provisioned.slice(1) };
-      })();
+  const result = localResult.bestMatch ? localResult : await findGoogleFallback(input.query);
 
   if (!result.bestMatch) {
     return {

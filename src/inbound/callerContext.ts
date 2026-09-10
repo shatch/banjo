@@ -22,8 +22,10 @@ export interface ResolvedCaller {
 }
 
 async function countInteractions(contactId: string): Promise<number> {
-  const [taskCount] = await db.select({ value: count() }).from(tasks).where(eq(tasks.contactId, contactId));
-  const [callCount] = await db.select({ value: count() }).from(inboundCalls).where(eq(inboundCalls.contactId, contactId));
+  const [[taskCount], [callCount]] = await Promise.all([
+    db.select({ value: count() }).from(tasks).where(eq(tasks.contactId, contactId)),
+    db.select({ value: count() }).from(inboundCalls).where(eq(inboundCalls.contactId, contactId)),
+  ]);
   return (taskCount?.value ?? 0) + (callCount?.value ?? 0);
 }
 

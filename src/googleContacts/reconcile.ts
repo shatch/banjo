@@ -1,20 +1,12 @@
-import postgres from 'postgres';
 import {
   addContact,
   getContactByGoogleResourceName,
   getContactByPhoneNumber,
+  isContactsUniqueViolation,
   updateContact,
 } from '../contacts/service.js';
 import type { Contact, NewContact } from '../contacts/schema.js';
 import type { GoogleContactMatch } from './lookup.js';
-
-const PG_UNIQUE_VIOLATION = '23505';
-// Both unique indexes on `contacts` (added in Task 1) are reachable from
-// provisioning: the phone-number one on a concurrent insert of the same new
-// person, and the google-resource-name one when a Google contact's phone
-// number changed (the cache row moved to the new number, but the previously
-// provisioned local row still holds the old number AND this resourceName).
-const CONTACTS_UNIQUE_CONSTRAINTS = new Set(['contacts_phone_number_unique', 'contacts_google_resource_name_unique']);
 
 const FAMILY_RELATION_TYPES = new Set([
   'spouse',
@@ -48,27 +40,6 @@ function deriveRelationshipTier(match: GoogleContactMatch): Contact['relationshi
 }
 
 /**
- * drizzle-orm's postgres-js driver (src/pg-core/session.ts's
- * queryWithCache) never lets a raw driver error escape — every query error
- * is wrapped in drizzle's own `DrizzleQueryError`, with the original
- * `postgres.PostgresError` attached as `.cause`. So the unique-violation
- * check below must look at `err.cause`, not `err` itself; `err instanceof
- * postgres.PostgresError` is never true for errors coming out of `db.insert`
- * with this driver. Verified empirically: the race test in
- * tests/googleContacts/reconcile.test.ts failed with an uncaught
- * DrizzleQueryError until this unwrap was added.
- */
-function isContactsUniqueViolation(err: unknown): boolean {
-  const cause = err instanceof Error ? (err as { cause?: unknown }).cause : undefined;
-  const pgErr = err instanceof postgres.PostgresError ? err : cause instanceof postgres.PostgresError ? cause : undefined;
-  return (
-    pgErr?.code === PG_UNIQUE_VIOLATION &&
-    pgErr.constraint_name !== undefined &&
-    CONTACTS_UNIQUE_CONSTRAINTS.has(pgErr.constraint_name)
-  );
-}
-
-/**
  * Find-or-create the local contacts row for a resolved Google match.
  * Additive-only on an existing row: never touches displayName, category,
  * preferredChannel, bookingUrl, or notes — those are curated by the
@@ -81,7 +52,10 @@ export async function provisionLocalContact(match: GoogleContactMatch): Promise<
 
   if (existing) {
     const patch: Partial<Pick<NewContact, 'email' | 'googleResourceName' | 'relationshipTier'>> = {};
-    if (!existing.email && match.email) patch.email = match.email;
+    // `match.email !== undefined` (presence), not truthiness — a genuine
+    // empty-string email from Google is still a value to backfill, not the
+    // same as Google reporting no email at all.
+    if (!existing.email && match.email !== undefined) patch.email = match.email;
     if (!existing.googleResourceName) patch.googleResourceName = match.googleResourceName;
     if (!existing.relationshipTier && relationshipTier) patch.relationshipTier = relationshipTier;
     if (Object.keys(patch).length === 0) return existing;
@@ -91,8 +65,16 @@ export async function provisionLocalContact(match: GoogleContactMatch): Promise<
       // Same rationale as the insert-path race below: another row may already
       // claim this googleResourceName (e.g. the Google contact's number
       // changed and the old row still holds it). A missed additive backfill
-      // must not fail the whole caller-ID resolution.
-      if (isContactsUniqueViolation(err)) return existing;
+      // must not fail the whole caller-ID resolution — but unlike a missed
+      // backfill, silently returning `existing` here would permanently
+      // orphan the row that actually holds this googleResourceName (call it
+      // B): every future lookup for this Google person keeps landing on
+      // `existing` instead of ever being reconciled to B. Resolve to B first,
+      // same as the insert-path race just below.
+      if (isContactsUniqueViolation(err)) {
+        const byResourceName = await getContactByGoogleResourceName(match.googleResourceName);
+        return byResourceName ?? existing;
+      }
       throw err;
     }
   }

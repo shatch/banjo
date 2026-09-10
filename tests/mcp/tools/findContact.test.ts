@@ -23,7 +23,7 @@ let findByName: any;
 
 // Set the real database URL and reload modules before any tests run
 beforeAll(async () => {
-  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo';
+  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo_test';
   vi.resetModules();
 
   // Import modules after env is set and modules are reset. The lookup.js

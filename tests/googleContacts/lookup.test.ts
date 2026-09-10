@@ -60,6 +60,23 @@ describe('findByPhone', () => {
     expect(searchContacts).not.toHaveBeenCalled();
   });
 
+  it('matches a cached entry that also carries a `type` field alongside e164', async () => {
+    // The cache stores {e164, type} objects (src/googleContacts/schema.ts's
+    // GooglePhoneNumber); findCachedByPhone's jsonb `@>` containment query
+    // must still match on e164 alone, not require an exact object match
+    // that would break the instant a stored number carries a type.
+    await db.insert(googleContacts).values({
+      googleResourceName: 'people/c9',
+      displayName: 'Has A Type',
+      phoneNumbers: [{ e164: '+15556667777', type: 'mobile' }],
+    });
+
+    const result = await findByPhone('+15556667777');
+
+    expect(result?.displayName).toBe('Has A Type');
+    expect(searchContacts).not.toHaveBeenCalled();
+  });
+
   it('falls back to a live search on a cache miss, and caches the hit', async () => {
     searchContacts.mockResolvedValue({
       data: {
