@@ -1,7 +1,5 @@
 import { eq, ilike, or } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { findByName } from '../googleContacts/lookup.js';
-import { provisionLocalContact } from '../googleContacts/reconcile.js';
 import { contacts, type Contact, type NewContact } from './schema.js';
 
 export async function addContact(input: {
@@ -93,10 +91,16 @@ export interface FindContactResult {
 }
 
 /**
- * Fuzzy name match — simple ILIKE, sufficient at single-user scale. Returns
- * alternates alongside the best match so callers (the MCP tool, ultimately
- * the schedule-appointment skill) can surface ambiguity to Steve rather than
- * silently guessing which "Dr. Smith" was meant.
+ * Fuzzy name match against locally-saved contacts only — simple ILIKE,
+ * sufficient at single-user scale. Returns alternates alongside the best
+ * match so callers (the MCP tool, ultimately the schedule-appointment skill)
+ * can surface ambiguity to Steve rather than silently guessing which
+ * "Dr. Smith" was meant.
+ *
+ * Does not fall back to Google Contacts — that orchestration lives in
+ * src/mcp/tools/findContact.ts, one layer up, so this module never needs to
+ * import from src/googleContacts/ (which itself imports back from here for
+ * dedupe lookups, e.g. getContactByPhoneNumber).
  */
 export async function findContact(query: string): Promise<FindContactResult> {
   const matches = await db
@@ -106,8 +110,5 @@ export async function findContact(query: string): Promise<FindContactResult> {
   if (matches.length > 0) {
     return { bestMatch: matches[0], alternates: matches.slice(1) };
   }
-
-  const googleMatches = await findByName(query);
-  const provisioned = await Promise.all(googleMatches.map((m) => provisionLocalContact(m)));
-  return { bestMatch: provisioned[0], alternates: provisioned.slice(1) };
+  return { bestMatch: undefined, alternates: [] };
 }
