@@ -56,6 +56,16 @@ npm run db:generate && npm run db:migrate
 npm run dev
 ```
 
+### Test database
+
+`npm test`'s DB-backed suites run against a separate `banjo_test` database on the same Postgres
+instance, not the `banjo` dev database above — create and migrate it once:
+
+```bash
+docker compose exec postgres createdb -U banjo banjo_test
+DATABASE_URL=postgresql://banjo:banjo@localhost:5432/banjo_test npm run db:migrate
+```
+
 ## Companion Claude Code skill
 
 Banjo only handles the phone-calling half of "get this errand done." The other half — deciding

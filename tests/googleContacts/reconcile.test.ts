@@ -10,7 +10,7 @@ let provisionLocalContact: any;
 // convention as tests/contacts/service.test.ts and
 // tests/googleContacts/lookup.test.ts.
 beforeAll(async () => {
-  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo';
+  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo_test';
   vi.resetModules();
 
   const dbModule = await import('../../src/db/index.js');

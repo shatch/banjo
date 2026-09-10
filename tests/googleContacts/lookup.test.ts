@@ -27,7 +27,7 @@ let findByName: any;
 // tests/googleContacts/sync.test.ts. The googleapis mock above means no real
 // OAuth/network ever happens.
 beforeAll(async () => {
-  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo';
+  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo_test';
   vi.resetModules();
 
   const dbModule = await import('../../src/db/index.js');

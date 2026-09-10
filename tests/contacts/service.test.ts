@@ -11,7 +11,7 @@ let updateContact: any;
 
 // Set the real database URL and reload modules before any tests run
 beforeAll(async () => {
-  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo';
+  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo_test';
 
   const dbModule = await import('../../src/db/index.js');
   const schemaModule = await import('../../src/contacts/schema.js');

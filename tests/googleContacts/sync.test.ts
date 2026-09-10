@@ -26,7 +26,7 @@ let runGoogleContactsSync: any;
 // any tests run — same convention as tests/contacts/service.test.ts. The
 // googleapis mock above means no real OAuth/network ever happens.
 beforeAll(async () => {
-  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo';
+  process.env.DATABASE_URL = 'postgresql://banjo:banjo@localhost:5432/banjo_test';
   process.env.GOOGLE_OAUTH_REFRESH_TOKEN = 'test-refresh-token';
   vi.resetModules();
 
