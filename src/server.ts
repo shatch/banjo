@@ -6,6 +6,7 @@ import twilioLib from 'twilio';
 import { GoogleCalendarProvider } from './calendar/googleCalendarProvider.js';
 import { config } from './config/index.js';
 import { buildInboundCallSessionOptions } from './inbound/callSessionAdapter.js';
+import { resolveCallerContext } from './inbound/callerContext.js';
 import { createInboundCall } from './inbound/service.js';
 import { buildInboundSystemPrompt } from './inbound/systemPrompt.js';
 import { logger } from './lib/logger.js';
@@ -140,7 +141,12 @@ app.post('/telephony/twilio/inbound', async (c) => {
 
   telephony.registerInboundCall(callSid, from);
   try {
-    const inboundCall = await createInboundCall({ twilioCallSid: callSid, callerPhoneNumber: from });
+    // Inside the try (not before it) as defense in depth: resolveCallerContext
+    // is itself written to fail closed and never throw, but if any lookup path
+    // in it ever does, the catch below still rolls the registration back rather
+    // than latching isAnyCallActive() to true for the life of the process.
+    const { contactId, greetingContext } = await resolveCallerContext(from);
+    const inboundCall = await createInboundCall({ twilioCallSid: callSid, callerPhoneNumber: from, contactId });
 
     // Fire-and-forget, matching src/tasks/orchestrator.ts's triggerOrchestration
     // pattern — a phone call runs for real wall-clock minutes, and this HTTP
@@ -155,7 +161,7 @@ app.post('/telephony/twilio/inbound', async (c) => {
         callerPhoneNumber: from,
         telephony: createTelephonyProvider(),
         calendar,
-        systemPrompt: buildInboundSystemPrompt(),
+        systemPrompt: buildInboundSystemPrompt(greetingContext),
       }),
     );
     session.start().catch((err) => logger.error({ err, callSid }, 'Inbound call session failed'));

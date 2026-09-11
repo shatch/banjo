@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { addContact } from '../../contacts/service.js';
+import { addContact, getContactByPhoneNumber, isContactsUniqueViolation } from '../../contacts/service.js';
 import { contactCategoryEnum } from '../../contacts/schema.js';
 import type { Contact } from '../../contacts/schema.js';
 
@@ -21,6 +21,31 @@ export const addContactInputSchema = z.object({
     .describe('Online booking URL, if this contact supports booking online as an alternative to a phone call.'),
 });
 
-export async function addContactHandler(input: z.infer<typeof addContactInputSchema>): Promise<Contact> {
-  return addContact(input);
+export type AddContactResult =
+  | { created: true; contact: Contact }
+  | { created: false; message: string; existingContact: Contact };
+
+/**
+ * Surfaces a duplicate phone number (contacts_phone_number_unique — see
+ * src/contacts/schema.ts) as a clear, distinct shape rather than letting the
+ * DB error crash the tool call — the calling skill needs to gracefully
+ * offer update_contact/find_contact instead, not see an opaque isError.
+ */
+export async function addContactHandler(input: z.infer<typeof addContactInputSchema>): Promise<AddContactResult> {
+  try {
+    const contact = await addContact(input);
+    return { created: true, contact };
+  } catch (err) {
+    if (isContactsUniqueViolation(err)) {
+      const existingContact = await getContactByPhoneNumber(input.phoneNumber);
+      if (existingContact) {
+        return {
+          created: false,
+          message: `A contact with phone number "${input.phoneNumber}" already exists: "${existingContact.displayName}". Use update_contact to change it, or find_contact to look it up.`,
+          existingContact,
+        };
+      }
+    }
+    throw err;
+  }
 }

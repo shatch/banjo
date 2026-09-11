@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { type AnyPgColumn, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { contacts } from '../contacts/schema.js';
 import { callAttemptStatusEnum } from '../tasks/schema.js';
 
 export const inboundBookingStatusEnum = pgEnum('inbound_booking_status', ['active', 'rescheduled', 'cancelled']);
@@ -21,6 +22,11 @@ export const inboundCalls = pgTable('inbound_calls', {
   // second id needs minting (unlike outbound's callAttempts.id).
   twilioCallSid: text('twilio_call_sid').notNull().unique(),
   callerPhoneNumber: text('caller_phone_number').notNull(),
+  // Nullable — set when src/inbound/callerContext.ts resolves the caller to
+  // a known local contact (directly, or via a Google Contacts match).
+  // Purely for interaction-count/greeting purposes, not a security key —
+  // the booking security boundary stays callerPhoneNumber, unchanged.
+  contactId: uuid('contact_id').references(() => contacts.id),
   status: callAttemptStatusEnum('status').notNull().default('connecting'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

@@ -79,3 +79,31 @@ who has the current key beyond "whoever has read access to `.env` or the deploye
 config." If Banjo moves to a real cloud deployment, moving `MCP_API_KEY` into a proper secrets
 manager (AWS Secrets Manager, etc.) with automatic rotation is the real fix — this runbook is the
 manual stopgap until then.
+
+---
+
+## Minting `GOOGLE_OAUTH_REFRESH_TOKEN` (Calendar + Contacts)
+
+Banjo's Calendar and Google Contacts integrations share one OAuth2 client and refresh token — the same
+`GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`/`GOOGLE_OAUTH_REFRESH_TOKEN` triple. The token must be
+minted with both scopes at once; there's no way to add a scope to an existing refresh token after the fact.
+
+### Steps
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), confirm your OAuth 2.0 Client
+   ID has both the Calendar API and People API enabled for the project.
+2. Go to [Google's OAuth 2.0 Playground](https://developers.google.com/oauthplayground).
+3. Click the gear icon, check "Use your own OAuth credentials," and enter your `GOOGLE_OAUTH_CLIENT_ID` /
+   `GOOGLE_OAUTH_CLIENT_SECRET`.
+4. In Step 1, select both scopes:
+   - `https://www.googleapis.com/auth/calendar`
+   - `https://www.googleapis.com/auth/contacts.readonly`
+5. Authorize APIs, sign in as the principal (the Google account whose calendar/contacts Banjo acts on), and
+   grant consent for both.
+6. In Step 2, exchange the authorization code for tokens — copy the resulting **refresh token**.
+7. Set `GOOGLE_OAUTH_REFRESH_TOKEN` in `.env` to that value and restart Banjo.
+
+If `GOOGLE_OAUTH_REFRESH_TOKEN` is unset or lacks the `contacts.readonly` scope, Google Contacts sync/lookups
+fail closed — they log and no-op rather than crash (see `src/googleContacts/sync.ts` and `lookup.ts`) — so
+Calendar keeps working even before this step is done; Contacts integration just silently does nothing until
+the token is upgraded.

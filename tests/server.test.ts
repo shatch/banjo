@@ -40,11 +40,23 @@ vi.mock('../src/telephony/factory.js', () => ({
 }));
 
 const createInboundCall = vi.fn(
-  async (_input: { twilioCallSid: string; callerPhoneNumber: string }) =>
+  async (_input: { twilioCallSid: string; callerPhoneNumber: string; contactId?: string }) =>
     ({ id: 'inbound-call-1', twilioCallSid: 'CA-inbound-1' }) as InboundCall,
 );
 vi.mock('../src/inbound/service.js', () => ({
-  createInboundCall: (input: { twilioCallSid: string; callerPhoneNumber: string }) => createInboundCall(input),
+  createInboundCall: (input: { twilioCallSid: string; callerPhoneNumber: string; contactId?: string }) => createInboundCall(input),
+}));
+
+// Caller-context resolution hits the real DB (via src/contacts/service.js)
+// otherwise — this suite's fake test-env DATABASE_URL (see vitest.config.ts)
+// isn't a real reachable database, so resolveCallerContext would throw and
+// turn every inbound-webhook request in this file into an unhandled 500.
+// Defaults to "unrecognized caller" (no contactId, no personalization),
+// matching resolveCallerContext's real behavior for a phone number with no
+// local or Google Contacts match.
+const resolveCallerContext = vi.fn(async (_callerPhoneNumber: string) => ({ contactId: undefined, greetingContext: undefined }));
+vi.mock('../src/inbound/callerContext.js', () => ({
+  resolveCallerContext: (callerPhoneNumber: string) => resolveCallerContext(callerPhoneNumber),
 }));
 
 const sessionStart = vi.fn(async () => {});
@@ -144,6 +156,29 @@ describe('POST /telephony/twilio/inbound', () => {
     expect(unregisterInboundCall).toHaveBeenCalledWith('CA-inbound-3');
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('<Reject');
+    expect(sessionStart).not.toHaveBeenCalled();
+  });
+
+  it('unregisters the call and declines when caller-context resolution throws', async () => {
+    // resolveCallerContext is written to fail closed and never throw, but if
+    // it ever does, it must not escape the handler's try — otherwise the
+    // rollback never runs and isAnyCallActive() latches true for the life of
+    // the process, silently declining every future inbound call.
+    config.INBOUND_BOOKING_ENABLED = true;
+    isAnyCallActive.mockReturnValue(false);
+    resolveCallerContext.mockRejectedValueOnce(new Error('db unavailable'));
+
+    const res = await app.request('/telephony/twilio/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': 'valid-signature' },
+      body: inboundWebhookBody({ CallSid: 'CA-inbound-4', From: '+15555550199' }),
+    });
+
+    expect(registerInboundCall).toHaveBeenCalledWith('CA-inbound-4', '+15555550199');
+    expect(unregisterInboundCall).toHaveBeenCalledWith('CA-inbound-4');
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<Reject');
+    expect(createInboundCall).not.toHaveBeenCalled();
     expect(sessionStart).not.toHaveBeenCalled();
   });
 

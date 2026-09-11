@@ -4,3 +4,4 @@
 export * from '../contacts/schema.js';
 export * from '../tasks/schema.js';
 export * from '../inbound/schema.js';
+export * from '../googleContacts/schema.js';

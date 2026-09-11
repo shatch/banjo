@@ -1,6 +1,19 @@
 import { eq, ilike, or } from 'drizzle-orm';
 import { db } from '../db/index.js';
+import { isPostgresUniqueViolation } from '../lib/postgresErrors.js';
 import { contacts, type Contact, type NewContact } from './schema.js';
+
+const CONTACTS_UNIQUE_CONSTRAINTS = new Set(['contacts_phone_number_unique', 'contacts_google_resource_name_unique']);
+
+/**
+ * Shared by every caller that needs to react to either of `contacts`' two
+ * unique indexes rather than crash (src/googleContacts/reconcile.ts,
+ * src/mcp/tools/addContact.ts). See src/lib/postgresErrors.ts for why this
+ * can't just be `err instanceof postgres.PostgresError`.
+ */
+export function isContactsUniqueViolation(err: unknown): boolean {
+  return isPostgresUniqueViolation(err, CONTACTS_UNIQUE_CONSTRAINTS);
+}
 
 export async function addContact(input: {
   displayName: string;
@@ -8,6 +21,9 @@ export async function addContact(input: {
   category?: NewContact['category'];
   notes?: string;
   bookingUrl?: string;
+  email?: string;
+  googleResourceName?: string;
+  relationshipTier?: NewContact['relationshipTier'];
 }): Promise<Contact> {
   const [row] = await db
     .insert(contacts)
@@ -17,6 +33,9 @@ export async function addContact(input: {
       category: input.category ?? 'other',
       notes: input.notes,
       bookingUrl: input.bookingUrl,
+      email: input.email,
+      googleResourceName: input.googleResourceName,
+      relationshipTier: input.relationshipTier,
     })
     .returning();
   if (!row) throw new Error('Failed to insert contact');
@@ -25,7 +44,20 @@ export async function addContact(input: {
 
 export async function updateContact(
   id: string,
-  patch: Partial<Pick<NewContact, 'preferredChannel' | 'bookingUrl' | 'notes' | 'displayName' | 'phoneNumber' | 'category'>>,
+  patch: Partial<
+    Pick<
+      NewContact,
+      | 'preferredChannel'
+      | 'bookingUrl'
+      | 'notes'
+      | 'displayName'
+      | 'phoneNumber'
+      | 'category'
+      | 'email'
+      | 'googleResourceName'
+      | 'relationshipTier'
+    >
+  >,
 ): Promise<Contact> {
   const [row] = await db
     .update(contacts)
@@ -48,21 +80,48 @@ export async function getContact(id: string): Promise<Contact | undefined> {
   return row;
 }
 
+/** The dedupe/lookup key src/googleContacts/reconcile.ts and inbound caller-ID resolution rely on. */
+export async function getContactByPhoneNumber(phoneNumber: string): Promise<Contact | undefined> {
+  const [row] = await db.select().from(contacts).where(eq(contacts.phoneNumber, phoneNumber));
+  return row;
+}
+
+/**
+ * The second dedupe key src/googleContacts/reconcile.ts relies on: the
+ * contacts_google_resource_name_unique index means a Google person can only
+ * ever claim one local row, so a provisioning attempt rejected on that index
+ * resolves to whichever row already holds it (e.g. after the Google contact's
+ * phone number changed).
+ */
+export async function getContactByGoogleResourceName(googleResourceName: string): Promise<Contact | undefined> {
+  const [row] = await db.select().from(contacts).where(eq(contacts.googleResourceName, googleResourceName));
+  return row;
+}
+
 export interface FindContactResult {
   bestMatch: Contact | undefined;
   alternates: Contact[];
 }
 
 /**
- * Fuzzy name match — simple ILIKE, sufficient at single-user scale. Returns
- * alternates alongside the best match so callers (the MCP tool, ultimately
- * the schedule-appointment skill) can surface ambiguity to Steve rather than
- * silently guessing which "Dr. Smith" was meant.
+ * Fuzzy name match against locally-saved contacts only — simple ILIKE,
+ * sufficient at single-user scale. Returns alternates alongside the best
+ * match so callers (the MCP tool, ultimately the schedule-appointment skill)
+ * can surface ambiguity to Steve rather than silently guessing which
+ * "Dr. Smith" was meant.
+ *
+ * Does not fall back to Google Contacts — that orchestration lives in
+ * src/mcp/tools/findContact.ts, one layer up, so this module never needs to
+ * import from src/googleContacts/ (which itself imports back from here for
+ * dedupe lookups, e.g. getContactByPhoneNumber).
  */
 export async function findContact(query: string): Promise<FindContactResult> {
   const matches = await db
     .select()
     .from(contacts)
     .where(or(ilike(contacts.displayName, `%${query}%`), ilike(contacts.notes, `%${query}%`)));
-  return { bestMatch: matches[0], alternates: matches.slice(1) };
+  if (matches.length > 0) {
+    return { bestMatch: matches[0], alternates: matches.slice(1) };
+  }
+  return { bestMatch: undefined, alternates: [] };
 }

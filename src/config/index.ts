@@ -130,6 +130,20 @@ const envSchema = z
     BUSINESS_HOURS_END: z.coerce.number().int().min(1).max(24).default(17),
     INBOUND_DEFAULT_DURATION_MINUTES: z.coerce.number().int().positive().default(30),
     INBOUND_MAX_LOOKAHEAD_DAYS: z.coerce.number().int().positive().default(14),
+    // ISO 3166-1 alpha-2 region used to interpret a phone number with no
+    // explicit country code, when normalizing Google Contacts phone numbers
+    // to E.164 for matching against Twilio's caller ID. See
+    // src/googleContacts/phoneNormalization.ts.
+    DEFAULT_PHONE_REGION: z.string().length(2).default('US'),
+    // How often the local Google Contacts cache refreshes. Personal contact
+    // lists are small — a full list, not an incremental sync, runs on this
+    // interval; see src/googleContacts/sync.ts and this plan's Global
+    // Constraints for why incremental sync was dropped from the design.
+    GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS: z.coerce.number().int().positive().default(6),
+    // Interaction count (tasks + inbound calls tied to a contact) at or
+    // above which an inbound caller with no Google relationship tier still
+    // gets a warmer "welcome back" greeting. See src/inbound/callerContext.ts.
+    FREQUENT_CONTACT_THRESHOLD: z.coerce.number().int().positive().default(3),
   })
   .refine((v) => v.VOICE_AI_PROVIDER !== 'openai' || !!v.OPENAI_API_KEY, {
     message: 'OPENAI_API_KEY is required when VOICE_AI_PROVIDER=openai',

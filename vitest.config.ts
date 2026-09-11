@@ -5,6 +5,19 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    // The DB-backed suites (tests/contacts/service.test.ts,
+    // tests/googleContacts/{reconcile,lookup,sync}.test.ts,
+    // tests/inbound/callerContext.test.ts) all point at the SAME dedicated
+    // test database (DATABASE_URL below) and truncate the same shared tables
+    // (`contacts` above all) in beforeEach. Run in parallel worker processes, one file's
+    // truncation deletes rows another file's test just inserted, producing
+    // failures ("Contact not found: <uuid>", a just-created contact suddenly
+    // not matching) that move around between runs and have nothing to do with
+    // the code under test. Serializing files is the fix — these suites are
+    // integration tests against one shared database, so they cannot be
+    // isolated by process. Costs a few seconds of wall clock; buys a suite
+    // whose failures actually mean something.
+    fileParallelism: false,
     // Most modules transitively import src/config, which validates its env
     // schema at import time. These give every test file a consistent, valid
     // baseline env (no real credentials — nothing here talks to a live
@@ -19,7 +32,13 @@ export default defineConfig({
       // unset vars from your real .env during tests (dotenv no-ops
       // silently when the file doesn't exist).
       DOTENV_CONFIG_PATH: '/dev/null',
-      DATABASE_URL: 'postgresql://ea:ea@localhost:5432/ea_test',
+      // Dedicated test database, migrated separately from the real local dev
+      // Postgres (`banjo` — see docker-compose.yml). The DB-backed suites
+      // below used to hardcode DATABASE_URL to the real `banjo` db instead of
+      // reading this value, which meant `npm test` was truncating shared dev
+      // data on every run. See README's "Test database" setup step for how
+      // to create and migrate `banjo_test`.
+      DATABASE_URL: 'postgresql://banjo:banjo@localhost:5432/banjo_test',
       VOICE_AI_PROVIDER: 'openai',
       OPENAI_API_KEY: 'sk-test',
       TELEPHONY_PROVIDER: 'twilio',

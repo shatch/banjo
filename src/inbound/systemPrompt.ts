@@ -1,5 +1,6 @@
 import { config } from '../config/index.js';
 import { buildBaseSystemPromptGuidance } from '../voice/systemPrompt.js';
+import type { CallerGreetingContext } from './callerContext.js';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -27,9 +28,21 @@ function formatHour(hour24: number): string {
  * it talks about the calendar in conversation, not just which tool it can
  * invoke.
  */
-export function buildInboundSystemPrompt(): string {
+function buildGreetingGuidance(callerContext: CallerGreetingContext): string {
+  const { displayName, relationshipTier, isFrequent } = callerContext;
+  if (relationshipTier === 'family' || relationshipTier === 'friend') {
+    return `\n\nThe caller is recognized as ${displayName}, a ${relationshipTier === 'family' ? 'family member' : 'friend'} of ${config.ASSISTANT_PRINCIPAL_NAME}'s. Greet them warmly by name (e.g. "Hi ${displayName}!") instead of the standard business greeting — your actual job stays exactly the same, helping book, look up, or reschedule an appointment, just with a warmer, more personal tone.`;
+  }
+  if (isFrequent) {
+    return `\n\nThe caller is recognized as ${displayName}, someone who has called or booked before. Acknowledge that briefly and warmly (e.g. "Welcome back, ${displayName}!") before proceeding exactly as normal.`;
+  }
+  return '';
+}
+
+export function buildInboundSystemPrompt(callerContext?: CallerGreetingContext): string {
+  const greetingGuidance = callerContext ? buildGreetingGuidance(callerContext) : '';
   return `
-${buildBaseSystemPromptGuidance('inbound')}
+${buildBaseSystemPromptGuidance('inbound')}${greetingGuidance}
 
 You are answering a public phone line to help the caller book, look up, or reschedule an appointment on
 ${config.ASSISTANT_PRINCIPAL_NAME}'s calendar. Appointments can only be booked on ${formatBusinessDays()} between ${formatHour(config.BUSINESS_HOURS_START)}
