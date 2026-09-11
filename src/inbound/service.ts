@@ -1,6 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
-import postgres from 'postgres';
 import { db } from '../db/index.js';
+import { isPostgresUniqueViolation } from '../lib/postgresErrors.js';
 import { inboundBookings, inboundCalls, type InboundBooking, type InboundCall } from './schema.js';
 
 /**
@@ -104,9 +104,6 @@ export class ActiveBookingConflictError extends Error {
   }
 }
 
-// Postgres unique_violation — see
-// https://www.postgresql.org/docs/current/errcodes-appendix.html.
-const PG_UNIQUE_VIOLATION = '23505';
 const ONE_ACTIVE_PER_CALLER_CONSTRAINT = 'inbound_bookings_one_active_per_caller';
 
 export async function createBooking(input: BookingInput): Promise<InboundBooking> {
@@ -118,7 +115,13 @@ export async function createBooking(input: BookingInput): Promise<InboundBooking
     if (!row) throw new Error('Failed to insert inbound booking');
     return row;
   } catch (err) {
-    if (err instanceof postgres.PostgresError && err.code === PG_UNIQUE_VIOLATION && err.constraint_name === ONE_ACTIVE_PER_CALLER_CONSTRAINT) {
+    // `err instanceof postgres.PostgresError` alone is never true here —
+    // see src/lib/postgresErrors.ts for why the raw driver error has to be
+    // unwrapped from drizzle's DrizzleQueryError first. Without the unwrap,
+    // this check was dead code and a real race (a timeout-retried
+    // book_appointment call) surfaced as an uncaught DrizzleQueryError
+    // instead of the intended ActiveBookingConflictError.
+    if (isPostgresUniqueViolation(err, ONE_ACTIVE_PER_CALLER_CONSTRAINT)) {
       throw new ActiveBookingConflictError();
     }
     throw err;
