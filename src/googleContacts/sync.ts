@@ -4,7 +4,7 @@ import { db } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import { createPeopleClient } from './googlePeopleClient.js';
 import { normalizePhoneNumber } from './phoneNormalization.js';
-import { googleContacts, type GooglePhoneNumber } from './schema.js';
+import { googleContacts, type GoogleContact, type GooglePhoneNumber } from './schema.js';
 
 const PERSON_FIELDS = 'names,phoneNumbers,emailAddresses,relations,memberships';
 const PAGE_SIZE = 200;
@@ -31,12 +31,19 @@ export async function fetchGroupLabels(people: people_v1.People): Promise<Map<st
  * module-private) so src/googleContacts/lookup.ts's live-fallback path can
  * cache a fresh live-search hit through the exact same logic, rather than
  * duplicating the field-mapping rules.
+ *
+ * Returns the upserted row directly (via `.returning()`) rather than making
+ * the caller do a separate SELECT afterward — a write-then-reread as two
+ * statements would leave a window for a concurrent writer (the periodic
+ * sync, or another live search for the same person) to land in between,
+ * making the reread return someone else's newer data instead of what was
+ * just written.
  */
 export async function upsertGoogleContact(
   person: people_v1.Schema$Person,
   groupLabelsByResourceName: Map<string, string>,
-): Promise<void> {
-  if (!person.resourceName) return;
+): Promise<GoogleContact | undefined> {
+  if (!person.resourceName) return undefined;
 
   const displayName = person.names?.[0]?.displayName ?? 'Unknown';
   const phoneNumbers: GooglePhoneNumber[] = (person.phoneNumbers ?? [])
@@ -69,10 +76,12 @@ export async function upsertGoogleContact(
     lastSyncedAt: new Date(),
   };
 
-  await db
+  const [row] = await db
     .insert(googleContacts)
     .values(values)
-    .onConflictDoUpdate({ target: googleContacts.googleResourceName, set: values });
+    .onConflictDoUpdate({ target: googleContacts.googleResourceName, set: values })
+    .returning();
+  return row;
 }
 
 async function syncOnce(): Promise<void> {

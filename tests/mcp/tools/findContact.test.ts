@@ -104,4 +104,18 @@ describe('findContactHandler', () => {
     const result = await findContactHandler({ query: 'Nobody' });
     expect(result.found).toBe(false);
   });
+
+  it('de-duplicates two Google matches that resolve to the same local contact (e.g. two cards sharing one phone number)', async () => {
+    vi.mocked(findByName).mockResolvedValue([
+      { googleResourceName: 'people/c1', displayName: 'Dup One', phoneNumber: '+15553334444', email: undefined, relationLabels: [], groupLabels: [] },
+      { googleResourceName: 'people/c2', displayName: 'Dup Two', phoneNumber: '+15553334444', email: undefined, relationLabels: [], groupLabels: [] },
+    ]);
+
+    const result = await findContactHandler({ query: 'Dup' });
+
+    expect(result.found).toBe(true);
+    // Without de-duping, the second match would resolve to the same row as
+    // the first and show up as a bogus "alternate" identical to bestMatch.
+    expect(result.found && result.alternates).toEqual([]);
+  });
 });

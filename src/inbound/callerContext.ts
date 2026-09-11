@@ -4,7 +4,7 @@ import { getContactByPhoneNumber } from '../contacts/service.js';
 import type { Contact } from '../contacts/schema.js';
 import { db } from '../db/index.js';
 import { findByPhone } from '../googleContacts/lookup.js';
-import { provisionLocalContact } from '../googleContacts/reconcile.js';
+import { provisionLocalContacts } from '../googleContacts/reconcile.js';
 import { logger } from '../lib/logger.js';
 import { tasks } from '../tasks/schema.js';
 import { inboundCalls } from './schema.js';
@@ -53,7 +53,10 @@ export async function resolveCallerContext(callerPhoneNumber: string): Promise<R
     let contact = await getContactByPhoneNumber(callerPhoneNumber);
     if (!contact) {
       const match = await findByPhone(callerPhoneNumber);
-      if (match) contact = await provisionLocalContact(match);
+      // Shares provisioning/de-dup with src/mcp/tools/findContact.ts's
+      // Google fallback via provisionLocalContacts, even though this path
+      // only ever has one match to provision.
+      if (match) [contact] = await provisionLocalContacts([match]);
     }
     if (!contact) {
       return { contactId: undefined, greetingContext: undefined };

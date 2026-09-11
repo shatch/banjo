@@ -1,4 +1,4 @@
-import { eq, ilike, sql } from 'drizzle-orm';
+import { ilike, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import { withTimeout as raceWithTimeout } from '../lib/withTimeout.js';
@@ -96,8 +96,13 @@ async function liveSearch(query: string, preferE164?: string): Promise<GoogleCon
   for (const result of data.results ?? []) {
     const person = result.person;
     if (!person?.resourceName) continue;
-    await upsertGoogleContact(person, groupLabelsByResourceName); // cache the hit for next time
-    const [row] = await db.select().from(googleContacts).where(eq(googleContacts.googleResourceName, person.resourceName));
+    // Uses the row upsertGoogleContact returns directly, rather than a
+    // separate re-select by resourceName — a write-then-reread as two
+    // statements left a window for a concurrent writer (the periodic sync,
+    // or another liveSearch for the same person) to land in between,
+    // making the reread return stale/different data than what was just
+    // cached, so pickPhoneNumber could miss the queried number.
+    const row = await upsertGoogleContact(person, groupLabelsByResourceName);
     if (row) {
       const match = toMatch(row, pickPhoneNumber(row, preferE164));
       if (match) matches.push(match);

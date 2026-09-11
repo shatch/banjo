@@ -104,3 +104,28 @@ export async function provisionLocalContact(match: GoogleContactMatch): Promise<
     throw err;
   }
 }
+
+/**
+ * Provisions a batch of Google matches and de-duplicates the result by
+ * contact id. Shared by both Google-fallback call sites —
+ * src/mcp/tools/findContact.ts (potentially several name matches) and
+ * src/inbound/callerContext.ts (a single phone match) — so the "provision,
+ * then de-dupe" step has one implementation instead of drifting apart.
+ *
+ * De-duping matters because two distinct Google matches can resolve to the
+ * *same* local row: provisionLocalContact's own race recovery above
+ * resolves a phone-number or googleResourceName conflict to an
+ * already-existing row, so e.g. two Google contact cards sharing one phone
+ * number would otherwise show up as a contact and its own alternate.
+ */
+export async function provisionLocalContacts(matches: GoogleContactMatch[]): Promise<Contact[]> {
+  const provisioned = await Promise.all(matches.map((match) => provisionLocalContact(match)));
+  const seen = new Set<string>();
+  const deduped: Contact[] = [];
+  for (const contact of provisioned) {
+    if (seen.has(contact.id)) continue;
+    seen.add(contact.id);
+    deduped.push(contact);
+  }
+  return deduped;
+}
