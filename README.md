@@ -5,7 +5,10 @@
 An open-source AI executive assistant that places real outbound phone calls on your behalf — books
 appointments, makes reservations, delivers messages — using a vendor-agnostic real-time Voice AI (OpenAI
 Realtime, Gemini Live, or ElevenLabs Conversational AI) over Twilio. It can also answer inbound calls to your
-own number for people who want to book, check, or reschedule an appointment with you directly.
+own number for people who want to book, check, or reschedule an appointment with you directly, recognizing
+callers who are already in your Google Contacts to personalize the greeting for family/friends/frequent
+callers. Outbound `find_contact` falls back to the same Google Contacts cache when a name isn't already
+saved locally, auto-provisioning it into your contact directory.
 
 **Why this exists:** closed SaaS "AI assistant that calls people for you" products exist — this is the
 version you can actually read, run yourself, and change. Single-tenant by design: you run your own instance
@@ -27,8 +30,12 @@ Banjo needs three things before it can place a real call — get these first:
    default — Gemini Live and ElevenLabs Conversational AI are supported but flagged
    `NEEDS VERIFICATION` in a few places (see `docs/ARCHITECTURE.md`'s Open Risks section) since they haven't
    carried live call traffic the way the OpenAI path has. Get an API key from whichever you pick.
-3. **A Google Calendar OAuth client + refresh token**, if you want live calendar-aware booking (see
-   `docs/ARCHITECTURE.md`'s Calendar section for how this is wired).
+3. **A Google OAuth client + refresh token**, if you want live calendar-aware booking and/or Google Contacts
+   integration (caller-ID personalization, `find_contact` fallback) — the two share one client and one
+   refresh token minted with both scopes at once. See `docs/RUNBOOKS.md`'s "Minting `GOOGLE_OAUTH_REFRESH_TOKEN`"
+   runbook for the exact steps, and `docs/ARCHITECTURE.md`'s Calendar/Google Contacts sections for how each is
+   wired. Skipping this step is fine — Calendar and Google Contacts fail closed (log and no-op) rather than
+   crash, so the rest of Banjo works without them.
 4. **A publicly reachable hostname for your local server.** Twilio calls back into Banjo over plain HTTPS
    (webhooks) and a WebSocket (the audio Media Stream), so it needs a real internet-facing hostname even in
    local dev — `localhost` won't work. The quickest way:
@@ -111,6 +118,8 @@ src/
   tasks/         task/call-attempt data model, phone-path orchestration
   contacts/      contact directory
   calendar/      Google Calendar integration (phone-path only — see docs/ARCHITECTURE.md)
+  googleContacts/ Google People API sync/lookup/reconciliation cache — feeds contacts/ and inbound/
+  inbound/       inbound call handling: booking flow + caller-ID resolution for greeting personalization
   mcp/           remote MCP server for tool-calling clients (e.g. Claude Code)
   session/       per-call state machine wiring telephony <-> voice AI <-> tools
   notifications/ outcome notifications (SMS by default)
