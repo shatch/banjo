@@ -2,6 +2,7 @@ import type { people_v1 } from 'googleapis';
 import { config } from '../config/index.js';
 import { db } from '../db/index.js';
 import { logger } from '../lib/logger.js';
+import { logGoogleContactsError } from './googleApiErrors.js';
 import { createPeopleClient } from './googlePeopleClient.js';
 import { normalizePhoneNumber } from './phoneNormalization.js';
 import { googleContacts, type GoogleContact, type GooglePhoneNumber } from './schema.js';
@@ -117,7 +118,7 @@ export async function runGoogleContactsSync(): Promise<void> {
     await syncOnce();
     logger.info('Google Contacts sync completed');
   } catch (err) {
-    logger.error({ err }, 'Google Contacts sync failed');
+    logGoogleContactsError(err, 'Google Contacts sync failed');
   }
 }
 

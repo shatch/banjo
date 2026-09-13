@@ -1,7 +1,7 @@
 import { ilike, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
-import { logger } from '../lib/logger.js';
 import { withTimeout as raceWithTimeout } from '../lib/withTimeout.js';
+import { logGoogleContactsError } from './googleApiErrors.js';
 import { fetchGroupLabels, upsertGoogleContact } from './sync.js';
 import { createPeopleClient } from './googlePeopleClient.js';
 import { googleContacts, type GoogleContact } from './schema.js';
@@ -82,7 +82,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   try {
     return await raceWithTimeout(promise, timeoutMs);
   } catch (err) {
-    logger.error({ err }, 'Google Contacts live lookup failed');
+    logGoogleContactsError(err, 'Google Contacts live lookup failed');
     return undefined;
   }
 }
