@@ -31,6 +31,8 @@
  *   --contact-id <uuid>    Reuse an existing contact instead of creating one.
  *   --category <string>    salon|medical|restaurant|home_services|other. Default: other.
  *   --goal <string>        Task description read into the call's system prompt.
+ *   --mode <mode>          booking|conversation. Default: booking. Use conversation for a call
+ *                          with no booking goal — it ends via end_conversation_call.
  *   --notes <string>       Extra context injected into the call system prompt.
  *   --duration <minutes>   Appointment duration to negotiate. Default: 15.
  *   --window-days <n>      How many days out the offerable window extends. Default: 3.
@@ -46,7 +48,7 @@ import { getTask } from '../src/tasks/service.js';
 import { startOrchestrationPoller } from '../src/tasks/orchestrator.js';
 import { placeCallHandler } from '../src/mcp/tools/placeCall.js';
 
-const TERMINAL_STATUSES = new Set(['confirmed', 'voicemail_left', 'negotiation_failed', 'escalated', 'failed', 'cancelled']);
+const TERMINAL_STATUSES = new Set(['confirmed', 'voicemail_left', 'negotiation_failed', 'escalated', 'conversation_completed', 'failed', 'cancelled']);
 
 async function main() {
   const { values } = parseArgs({
@@ -67,6 +69,7 @@ async function main() {
         default:
           "This is a manual scaffold test call — please mention it's a test, confirm you can hear the caller, then call end_call to end the call. Do not attempt a real booking.",
       },
+      mode: { type: 'string', default: 'booking' },
       notes: { type: 'string', default: '' },
       duration: { type: 'string', default: '15' },
       'window-days': { type: 'string', default: '3' },
@@ -79,6 +82,11 @@ async function main() {
     console.error('Usage: npx tsx scripts/manual-test-call.ts --phone "+15551234567" [--goal "..."] [--yes]');
     process.exit(1);
   }
+  if (values.mode !== 'booking' && values.mode !== 'conversation') {
+    console.error(`Error: --mode must be "booking" or "conversation" (got "${values.mode}").`);
+    process.exit(1);
+  }
+  const mode: 'booking' | 'conversation' = values.mode;
 
   console.log('\n--- ea manual test call ---');
   console.log(`Telephony provider: twilio`);
@@ -114,6 +122,7 @@ async function main() {
   const { taskId, ackMessage } = await placeCallHandler({
     contactId,
     taskDescription: values.goal ?? '',
+    mode,
     constraints: {
       durationMinutes,
       dateWindows: [{ start: now.toISOString(), end: windowEnd.toISOString() }],
