@@ -8,7 +8,7 @@ import { config } from './config/index.js';
 import { buildInboundCallSessionOptions } from './inbound/callSessionAdapter.js';
 import { resolveCallerContext } from './inbound/callerContext.js';
 import { createInboundCall } from './inbound/service.js';
-import { buildInboundSystemPrompt } from './inbound/systemPrompt.js';
+import { buildInboundFrontendPrompt, buildInboundSystemPrompt } from './inbound/systemPrompt.js';
 import { logger } from './lib/logger.js';
 import { registerMcpRoutes } from './mcp/server.js';
 import { healthRoutes } from './routes/health.js';
@@ -162,6 +162,7 @@ app.post('/telephony/twilio/inbound', async (c) => {
         telephony: createTelephonyProvider(),
         calendar,
         systemPrompt: buildInboundSystemPrompt(greetingContext),
+        frontendSystemPrompt: buildInboundFrontendPrompt(greetingContext),
       }),
     );
     session.start().catch((err) => logger.error({ err, callSid }, 'Inbound call session failed'));

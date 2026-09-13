@@ -4,7 +4,7 @@ import type { TelephonyEvent, TelephonyProvider } from '../telephony/providers/t
 import { createVoiceAIProvider } from '../voice/factory.js';
 import { toToolDefinition, type VoiceTool } from '../voice/tools/defineVoiceTool.js';
 import type { ToolDefinition } from '../voice/types.js';
-import type { VoiceAIEvent, VoiceAIProvider } from '../voice/types.js';
+import type { VerbatimDeliveryReport, VoiceAIEvent, VoiceAIProvider } from '../voice/types.js';
 import { createAudioPlaybackTracker, type AudioPlaybackTracker } from './audioPlaybackTracker.js';
 import { negotiateAudioFormats, resolveAudioPipeline, type AudioPipeline } from './audioPipeline.js';
 import type { CallContext } from './types.js';
@@ -84,14 +84,16 @@ export interface CallSessionOptions<TCtx = CallContext> {
   callId: string;
   telephony: TelephonyProvider;
   systemPrompt: string;
+  /** Voice-layer-only prompt, passed through as VoiceAISessionConfig.frontendInstructions — used only by a provider that splits its voice front-end from a reasoning backend (openai-live), which then gets `systemPrompt` as the backend prompt. Ignored by every other provider. */
+  frontendSystemPrompt?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tools: VoiceTool<any, TCtx>[];
   /** Whether CallSession should prompt the model to speak first once the call connects, before any caller input. Inbound: true. Outbound: unset/false — the callee naturally speaks first. */
   greetOnConnect?: boolean;
   /** Originates the call (outbound) or resolves the already-connected call's identity (inbound). */
   beginCall(): Promise<{ providerCallId: string }>;
-  /** Built fresh on every tool invocation so handlers see current state, not a snapshot taken at session construction. `estimatedAudioDoneAt` is audioPlaybackTracker.estimatedDoneAt() at the moment of this call — see hangUpAfterSpeaking (voice/tools/callTools.ts) for why a hang-up tool needs it. */
-  buildToolContext(estimatedAudioDoneAt: number): Promise<TCtx>;
+  /** Built fresh on every tool invocation so handlers see current state, not a snapshot taken at session construction. `estimatedAudioDoneAt` is audioPlaybackTracker.estimatedDoneAt() at the moment of this call — see hangUpAfterSpeaking (voice/tools/callTools.ts) for why a hang-up tool needs it. `verbatimDelivery` is VoiceAIProvider.verbatimDeliveryReport()'s result after a tool's forced verbatim speech — undefined for a tool without verbatimMessage, or a provider that doesn't report. */
+  buildToolContext(estimatedAudioDoneAt: number, verbatimDelivery?: VerbatimDeliveryReport): Promise<TCtx>;
   onStatusChange(patch: CallSessionStatusPatch): Promise<void>;
   /** Called after the legs are torn down (voice AI disconnected, telephony hung up) — separate from onStatusChange since a failure may need materially different persistence than a normal status update. */
   onFailure(reason: string): Promise<void>;
@@ -154,6 +156,7 @@ export class CallSession<TCtx = CallContext> {
     try {
       await this.voiceAI.connect({
         instructions: systemPrompt,
+        ...(this.opts.frontendSystemPrompt !== undefined ? { frontendInstructions: this.opts.frontendSystemPrompt } : {}),
         tools: this.toolDefinitions,
         inputAudioFormat: this.outputFormat.input,
         outputAudioFormat: this.outputFormat.output,
@@ -361,6 +364,7 @@ export class CallSession<TCtx = CallContext> {
 
     try {
       if (tool.endsCall) await this.waitForTurnEnd(TURN_END_WAIT_MS);
+      let verbatimDelivery: VerbatimDeliveryReport | undefined;
       if (tool.verbatimMessage) {
         // This forced turn can legitimately take much longer than a normal
         // tool call (reading an entire voicemail message aloud) — re-arm the
@@ -372,12 +376,19 @@ export class CallSession<TCtx = CallContext> {
           void this.fail('tool_pending_watchdog', new Error(`Tool ${name} did not resolve in time`));
         }, VERBATIM_TOOL_PENDING_BUDGET_MS);
         await this.speakVerbatim(tool.verbatimMessage(parsed.data));
+        // Only a provider that can't guarantee verbatim playback reports what
+        // was actually said (openai-live); undefined leaves the handler on its
+        // original trust-the-provider path.
+        verbatimDelivery = this.voiceAI.verbatimDeliveryReport?.();
+        if (verbatimDelivery && !verbatimDelivery.matched) {
+          logger.warn({ callId: this.opts.callId, toolCallId, name }, 'Verbatim message delivery did not match the intended text');
+        }
       }
       // Built AFTER any forced verbatim speech above so estimatedAudioDoneAt
       // reflects that speech's audio too — audioPlaybackTracker already
       // recorded it via the normal audio_chunk path (handleVoiceAIEvent),
       // regardless of why the model was speaking.
-      const ctx = await this.opts.buildToolContext(this.audioPlaybackTracker.estimatedDoneAt());
+      const ctx = await this.opts.buildToolContext(this.audioPlaybackTracker.estimatedDoneAt(), verbatimDelivery);
       const result = await tool.handler(parsed.data, ctx);
       this.voiceAI.sendToolResult(toolCallId, result, false);
     } catch (err) {

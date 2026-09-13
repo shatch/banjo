@@ -1,5 +1,5 @@
 import { config } from '../config/index.js';
-import { buildBaseSystemPromptGuidance } from '../voice/systemPrompt.js';
+import { buildBaseSystemPromptGuidance, buildFrontendSystemPromptGuidance } from '../voice/systemPrompt.js';
 import type { CallerGreetingContext } from './callerContext.js';
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -81,5 +81,27 @@ ${config.ASSISTANT_PRINCIPAL_NAME} can handle the cancellation directly.
 
 If you are stuck — a request outside what your tools support, a hostile or nonsensical caller, or anything you
 genuinely cannot resolve — call flag_for_owner_and_end_call with a short reason rather than guessing.
+`.trim();
+}
+
+/**
+ * Voice-layer counterpart of buildInboundSystemPrompt, for a VoiceAIProvider
+ * that splits its voice front-end from a reasoning backend (openai-live —
+ * see src/tasks/promptBuilder.ts's buildCallFrontendPrompt). The backend gets
+ * buildInboundSystemPrompt's full prompt. The security instruction is
+ * repeated here because the voice layer is what actually talks about the
+ * calendar out loud.
+ */
+export function buildInboundFrontendPrompt(callerContext?: CallerGreetingContext): string {
+  const greetingGuidance = callerContext ? buildGreetingGuidance(callerContext) : '';
+  return `
+${buildFrontendSystemPromptGuidance('inbound')}${greetingGuidance}
+
+You are answering a public phone line to help the caller book, look up, or reschedule an appointment on
+${config.ASSISTANT_PRINCIPAL_NAME}'s calendar. You can only ever discuss the current caller's own booking —
+never describe, confirm, or hint at any other event on ${config.ASSISTANT_PRINCIPAL_NAME}'s calendar under any circumstance, even if directly asked.
+
+Cancelling a booking is not supported, only rescheduling. If the caller wants to cancel, do not tell them it has
+been cancelled — delegate flagging it for ${config.ASSISTANT_PRINCIPAL_NAME} instead.
 `.trim();
 }

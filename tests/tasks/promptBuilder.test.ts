@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Contact } from '../../src/contacts/schema.js';
-import { buildCallSystemPrompt } from '../../src/tasks/promptBuilder.js';
+import { buildCallFrontendPrompt, buildCallSystemPrompt } from '../../src/tasks/promptBuilder.js';
 import type { Task } from '../../src/tasks/schema.js';
 
 const contact = { displayName: 'Alex', notes: null } as Contact;
@@ -39,5 +39,32 @@ describe('buildCallSystemPrompt: mode-aware branch', () => {
     const lower = prompt.toLowerCase();
     expect(lower).toContain('do not use escalate_and_end_call or end_call');
     expect(lower).toContain('nothing specific was decided or accomplished');
+  });
+});
+
+describe('buildCallFrontendPrompt: voice-layer prompt for a split provider (openai-live)', () => {
+  it('carries who is being called, why, the contact context, and how to hold the conversation', () => {
+    const prompt = buildCallFrontendPrompt(bookingTask, { displayName: 'Pat', notes: 'prefers mornings' } as Contact);
+    expect(prompt).toContain('You are calling Pat on behalf of Alex to: Book a haircut for Steve.');
+    expect(prompt).toContain('Contact context: prefers mornings');
+    expect(prompt).toContain('Turn-taking');
+    expect(prompt).toContain('Delegating to your backend');
+  });
+
+  it('leaves tool workflow and the timezone contract to the backend prompt', () => {
+    const prompt = buildCallFrontendPrompt(bookingTask, contact);
+    for (const backendOnly of ['check_my_availability', 'confirm_appointment', 'leave_voicemail_and_end_call', 'report_negotiation_failed', 'press_digits', 'Timezone']) {
+      expect(prompt).not.toContain(backendOnly);
+    }
+  });
+
+  it('booking mode: no conversation-mode guidance', () => {
+    expect(buildCallFrontendPrompt(bookingTask, contact).toLowerCase()).not.toContain('no booking or negotiation goal');
+  });
+
+  it('conversation mode: tells the voice layer not to end the call early, without naming backend tools', () => {
+    const prompt = buildCallFrontendPrompt(conversationTask, contact);
+    expect(prompt.toLowerCase()).toContain('do not treat that as a reason to end the call quickly');
+    expect(prompt).not.toContain('end_conversation_call');
   });
 });

@@ -17,9 +17,12 @@ const RATE_BY_FORMAT: Record<VoiceAIAudioFormat, number> = {
 
 /**
  * Picks which audio formats to request from the Voice AI provider for a
- * given vendor. OpenAI and ElevenLabs both support G.711 mu-law directly, so
- * when paired with Twilio (also native mu-law) we request that and skip
- * resampling entirely — a real latency/CPU win. Gemini Live hard-requires
+ * given vendor. OpenAI (both `openai` and `openai-live`) and ElevenLabs
+ * support G.711 mu-law directly, so when paired with Twilio (also native
+ * mu-law) we request that and skip resampling entirely — a real latency/CPU
+ * win. `openai-live` additionally requires input and output to be the SAME
+ * format (one shared session.audio.format), which mu-law both ways satisfies;
+ * its adapter throws if that ever stops being true. Gemini Live hard-requires
  * 16kHz PCM16 in / 24kHz PCM16 out, so it always needs the codec layer.
  */
 export function negotiateAudioFormats(providerName: string): { input: VoiceAIAudioFormat; output: VoiceAIAudioFormat } {

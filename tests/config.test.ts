@@ -20,7 +20,7 @@ const originalEnv = { ...process.env };
 // validation failure this test is specifically trying to trigger.
 const ALL_CONFIG_KEYS = [
   'NODE_ENV', 'PORT', 'LOG_LEVEL', 'PUBLIC_HOSTNAME', 'DATABASE_URL',
-  'VOICE_AI_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_REALTIME_MODEL',
+  'VOICE_AI_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_REALTIME_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL',
   'GEMINI_API_KEY', 'GEMINI_LIVE_MODEL', 'ELEVENLABS_API_KEY', 'ELEVENLABS_AGENT_ID',
   'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER', 'TWILIO_WEBHOOK_VALIDATION_ENABLED',
   'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'GOOGLE_OAUTH_REFRESH_TOKEN', 'GOOGLE_CALENDAR_ID',
@@ -72,6 +72,19 @@ describe('config: env schema', () => {
   it('fails fast when the selected voice AI provider is missing its API key', async () => {
     setEnv({ VOICE_AI_PROVIDER: 'gemini' /* no GEMINI_API_KEY */ });
     await expect(import('../src/config/index.js')).rejects.toThrow();
+  });
+
+  it('fails fast when VOICE_AI_PROVIDER=openai-live is missing OPENAI_API_KEY', async () => {
+    setEnv({ VOICE_AI_PROVIDER: 'openai-live', OPENAI_API_KEY: '' });
+    await expect(import('../src/config/index.js')).rejects.toThrow(/OPENAI_API_KEY is required when VOICE_AI_PROVIDER=openai-live/);
+  });
+
+  it('accepts VOICE_AI_PROVIDER=openai-live with an API key, applying the GPT-Live model defaults', async () => {
+    setEnv({ VOICE_AI_PROVIDER: 'openai-live' });
+    const { config } = await import('../src/config/index.js');
+    expect(config.VOICE_AI_PROVIDER).toBe('openai-live');
+    expect(config.OPENAI_LIVE_MODEL).toBe('gpt-live-1');
+    expect(config.OPENAI_LIVE_BACKEND_MODEL).toBe('gpt-5.6-terra');
   });
 
   it('fails fast when Twilio credentials are missing — Twilio is the only telephony provider', async () => {

@@ -299,6 +299,52 @@ describe('outcome-recording order relative to hangUpAfterSpeaking (regression fo
     expect(transitionOrder).toBeLessThan(hangUpOrder);
   });
 
+  it('leave_voicemail_and_end_call: records voicemail_left when the provider reports the message was delivered verbatim', async () => {
+    vi.useFakeTimers();
+    const hangUp = vi.fn(async () => {});
+    const ctx: CallContext = {
+      ...makeCtx(hangUp, Date.now()),
+      verbatimDelivery: { intended: 'please call back', spoken: 'please call back', matched: true },
+    };
+
+    const promise = leaveVoicemailAndEndCallTool.handler({ message: 'please call back' }, ctx);
+    await vi.advanceTimersByTimeAsync(6000);
+    const result = await promise;
+    vi.useRealTimers();
+
+    expect(transitionTask).toHaveBeenCalledWith('task-1', 'voicemail_left', {
+      outcome: { kind: 'voicemail_left', message: 'please call back' },
+    });
+    expect(hangUp).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("leave_voicemail_and_end_call: records escalated — never voicemail_left — when the provider reports the spoken audio didn't match, and still hangs up", async () => {
+    // Speak-then-verify (openai-live): Postgres must record what the callee
+    // actually heard, not what the model was asked to say.
+    vi.useFakeTimers();
+    const hangUp = vi.fn(async () => {});
+    const ctx: CallContext = {
+      ...makeCtx(hangUp, Date.now()),
+      verbatimDelivery: { intended: 'please call back at 555-1234', spoken: 'please call back', matched: false },
+    };
+
+    const promise = leaveVoicemailAndEndCallTool.handler({ message: 'please call back at 555-1234' }, ctx);
+    await vi.advanceTimersByTimeAsync(6000);
+    const result = await promise;
+    vi.useRealTimers();
+
+    expect(transitionTask).toHaveBeenCalledTimes(1);
+    expect(transitionTask).toHaveBeenCalledWith('task-1', 'escalated', {
+      outcome: { kind: 'escalated', reason: expect.stringContaining('could not be verified') },
+    });
+    expect(hangUp).toHaveBeenCalledTimes(1);
+    const transitionOrder = transitionTask.mock.invocationCallOrder[0]!;
+    const hangUpOrder = vi.mocked(hangUp).mock.invocationCallOrder[0]!;
+    expect(transitionOrder).toBeLessThan(hangUpOrder);
+    expect(result).toEqual({ ok: false, error: 'voicemail_delivery_unverified' });
+  });
+
   it('report_negotiation_failed: transitionTask runs before hangUp, even with a long trailing wait', async () => {
     vi.useFakeTimers();
     const hangUp = vi.fn(async () => {});

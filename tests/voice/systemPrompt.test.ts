@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildBaseSystemPromptGuidance } from '../../src/voice/systemPrompt.js';
+import { buildBaseSystemPromptGuidance, buildFrontendSystemPromptGuidance } from '../../src/voice/systemPrompt.js';
 
 describe('buildBaseSystemPromptGuidance', () => {
   it('defaults to the outbound identity line', () => {
@@ -49,5 +49,50 @@ describe('buildBaseSystemPromptGuidance', () => {
     const lower = prompt.toLowerCase();
     expect(lower).toContain('say goodbye');
     expect(lower).toContain('before calling any tool that ends the call');
+  });
+});
+
+describe('buildFrontendSystemPromptGuidance (voice layer of a split provider, e.g. openai-live)', () => {
+  it('keeps identity, tone, ending the call, turn-taking, stalling, and call conduct, in both directions', () => {
+    for (const direction of ['outbound', 'inbound'] as const) {
+      const prompt = buildFrontendSystemPromptGuidance(direction);
+      for (const section of ['Identity and tone', 'Ending the call', 'Turn-taking', 'Handling tool calls', 'General call conduct']) {
+        expect(prompt).toContain(section);
+      }
+    }
+  });
+
+  it('uses the direction-specific identity line', () => {
+    expect(buildFrontendSystemPromptGuidance('outbound')).toContain('placing an outbound phone call on behalf of Alex');
+    expect(buildFrontendSystemPromptGuidance('inbound')).toContain("answering an inbound phone call on Alex's behalf");
+  });
+
+  it('leaves the timezone contract to the backend, which receives the full prompt', () => {
+    expect(buildFrontendSystemPromptGuidance()).not.toContain('Timezone');
+  });
+
+  it('adds delegation guidance that the shared base guidance does not have', () => {
+    expect(buildFrontendSystemPromptGuidance()).toContain('Delegating to your backend');
+    expect(buildBaseSystemPromptGuidance()).not.toContain('Delegating to your backend');
+  });
+
+  it('tells the voice layer that saying goodbye does not hang up, and to delegate ending the call right after its goodbye — live calls stayed open through repeated goodbyes', () => {
+    const prompt = buildFrontendSystemPromptGuidance();
+    expect(prompt).toContain('saying goodbye does NOT hang up the phone');
+    expect(prompt).toContain('immediately delegate ending the call to your backend');
+    expect(buildBaseSystemPromptGuidance()).not.toContain('saying goodbye does NOT hang up the phone');
+  });
+
+  it('forbids saying its own reasoning out loud — a live voicemail recorded the model announcing its decision', () => {
+    expect(buildFrontendSystemPromptGuidance('outbound')).toContain('Never say your own reasoning, decisions, or plans out loud');
+    expect(buildFrontendSystemPromptGuidance('inbound')).toContain('Never say your own reasoning, decisions, or plans out loud');
+  });
+
+  it('reuses the base guidance wording verbatim — every voice-layer section except delegation appears in the base guidance as-is', () => {
+    const base = buildBaseSystemPromptGuidance('outbound');
+    const sections = buildFrontendSystemPromptGuidance('outbound').split('\n\n');
+    for (const section of sections.slice(0, -1)) {
+      expect(base).toContain(section);
+    }
   });
 });

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { negotiateAudioFormats, resolveAudioPipeline } from '../../src/session/audioPipeline.js';
 
 describe('audioPipeline: negotiateAudioFormats', () => {
-  it('picks mu-law passthrough for openai and elevenlabs', () => {
+  it('picks mu-law passthrough for openai, openai-live, and elevenlabs', () => {
     expect(negotiateAudioFormats('openai')).toEqual({ input: 'g711_ulaw_8k', output: 'g711_ulaw_8k' });
+    // openai-live additionally requires input === output (one shared session.audio.format).
+    expect(negotiateAudioFormats('openai-live')).toEqual({ input: 'g711_ulaw_8k', output: 'g711_ulaw_8k' });
     expect(negotiateAudioFormats('elevenlabs')).toEqual({ input: 'g711_ulaw_8k', output: 'g711_ulaw_8k' });
   });
 

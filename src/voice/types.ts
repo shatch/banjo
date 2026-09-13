@@ -45,11 +45,26 @@ export type VoiceAIAudioFormat = 'pcm16_8k' | 'pcm16_16k' | 'pcm16_24k' | 'g711_
 
 export interface VoiceAISessionConfig {
   instructions: string;
+  /**
+   * Optional voice-layer-only prompt, for a provider that splits its voice
+   * front-end from a separate reasoning/tool-calling backend (openai-live).
+   * Such a provider gives this to the voice layer and `instructions` to the
+   * backend; every other provider ignores it and uses `instructions` alone.
+   */
+  frontendInstructions?: string;
   tools: ToolDefinition[];
   voice?: string;
   languageHint?: string;
   inputAudioFormat: VoiceAIAudioFormat;
   outputAudioFormat: VoiceAIAudioFormat;
+}
+
+/** What a provider that cannot guarantee verbatim playback actually spoke for its most recent sayVerbatim() call — see VoiceAIProvider.verbatimDeliveryReport. */
+export interface VerbatimDeliveryReport {
+  intended: string;
+  /** Transcript of the model's own speech from the sayVerbatim() call until the report was taken. */
+  spoken: string;
+  matched: boolean;
 }
 
 export class VoiceAIError extends Error {
@@ -100,6 +115,16 @@ export interface VoiceAIProvider {
    * to say the exact right words before the tool call reported it delivered.
    */
   sayVerbatim(text: string): void;
+  /**
+   * Optional. A provider that cannot guarantee verbatim delivery (openai-live
+   * has no verbatim-playback mechanism at all) reports what was actually
+   * spoken for the most recent sayVerbatim() call. CallSession reads it once
+   * the forced speech finishes and hands it to the tool handler, so the
+   * recorded outcome reflects what the callee heard. Undefined if
+   * sayVerbatim() was never called. Providers without this method are
+   * trusted to have complied, as before.
+   */
+  verbatimDeliveryReport?(): VerbatimDeliveryReport | undefined;
   disconnect(): Promise<void>;
   on(event: 'event', listener: VoiceAIEventListener): void;
   off(event: 'event', listener: VoiceAIEventListener): void;

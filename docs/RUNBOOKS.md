@@ -105,5 +105,17 @@ minted with both scopes at once; there's no way to add a scope to an existing re
 
 If `GOOGLE_OAUTH_REFRESH_TOKEN` is unset or lacks the `contacts.readonly` scope, Google Contacts sync/lookups
 fail closed — they log and no-op rather than crash (see `src/googleContacts/sync.ts` and `lookup.ts`) — so
-Calendar keeps working even before this step is done; Contacts integration just silently does nothing until
-the token is upgraded.
+Calendar keeps working even before this step is done; Contacts integration just does nothing until the token
+is upgraded. A Calendar-only token shows up in the logs as a single line:
+`Google Contacts sync failed: GOOGLE_OAUTH_REFRESH_TOKEN lacks the contacts.readonly scope — re-mint it ...`
+(Google's `403 ACCESS_TOKEN_SCOPE_INSUFFICIENT`, detected in `src/googleContacts/googleApiErrors.ts`).
+
+To check which APIs are enabled for step 1, use the Cloud Console rather than the API hostnames themselves —
+opening `https://calendar.googleapis.com/` or `https://www.googleapis.com/` in a browser returns Google's generic
+"404. That's an error. The requested URL / was not found on this server," which is expected and means nothing.
+The pages you want (make sure the project selector shows the project that owns your OAuth client — its project
+number is the part of `GOOGLE_OAUTH_CLIENT_ID` before the first `-`):
+
+- Enabled APIs: https://console.cloud.google.com/apis/dashboard
+- Google Calendar API: https://console.cloud.google.com/apis/library/calendar-json.googleapis.com
+- People API: https://console.cloud.google.com/apis/library/people.googleapis.com

@@ -1,6 +1,6 @@
 import type { Contact } from '../contacts/schema.js';
 import { config } from '../config/index.js';
-import { buildBaseSystemPromptGuidance } from '../voice/systemPrompt.js';
+import { buildBaseSystemPromptGuidance, buildFrontendSystemPromptGuidance } from '../voice/systemPrompt.js';
 import type { Task, TimeWindow } from './schema.js';
 
 function formatWindows(windows: TimeWindow[]): string {
@@ -55,5 +55,35 @@ If you get stuck — a confusing phone menu, a hostile or nonsensical response, 
 call escalate_and_end_call with a short reason rather than guessing or looping indefinitely.
 If you're navigating a phone menu, use press_digits to select the relevant option; if you've tried a couple of
 options and still can't find a relevant one, escalate rather than keep guessing.${conversationModeGuidance(task)}
+`.trim();
+}
+
+function conversationModeFrontendGuidance(task: Task): string {
+  if (task.mode !== 'conversation') return '';
+  return `
+
+This call has no booking or negotiation goal — it's a conversation. Not having a specific outcome to report is
+expected and fine; do not treat that as a reason to end the call quickly. Engage naturally and stay on the call
+until the conversation reaches its own natural close — the other party sounds done, or you've said what you
+called to say and there's nothing more to add — then say goodbye and immediately delegate ending the call. The
+call does not end when you say goodbye; it ends only when your backend ends it.`;
+}
+
+/**
+ * Voice-layer counterpart of buildCallSystemPrompt, for a VoiceAIProvider that
+ * splits its voice front-end from a reasoning backend (openai-live — passed
+ * through as VoiceAISessionConfig.frontendInstructions; every other provider
+ * ignores it). The backend receives buildCallSystemPrompt's full prompt —
+ * tools, candidate windows, timezone contract — so this carries only what the
+ * voice needs to hold the conversation: who it is calling, why, and how to
+ * sound.
+ */
+export function buildCallFrontendPrompt(task: Task, contact: Contact): string {
+  return `
+${buildFrontendSystemPromptGuidance()}
+
+You are calling ${contact.displayName} on behalf of ${config.ASSISTANT_PRINCIPAL_NAME} to: ${task.goalDescription}.
+
+Contact context: ${contact.notes ?? '(no notes on file)'}${conversationModeFrontendGuidance(task)}
 `.trim();
 }

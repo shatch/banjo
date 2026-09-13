@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildInboundSystemPrompt } from '../../src/inbound/systemPrompt.js';
+import { buildInboundFrontendPrompt, buildInboundSystemPrompt } from '../../src/inbound/systemPrompt.js';
 
 describe('buildInboundSystemPrompt', () => {
   it('states the configured business-hours bound in human-readable form', () => {
@@ -98,5 +98,34 @@ describe('buildInboundSystemPrompt', () => {
     // somehow were passed one with both signals false.
     const result = buildInboundSystemPrompt({ displayName: 'Anyone', relationshipTier: null, isFrequent: false });
     expect(result).toBe(buildInboundSystemPrompt());
+  });
+});
+
+describe('buildInboundFrontendPrompt: voice-layer prompt for a split provider (openai-live)', () => {
+  it('keeps the inbound identity line', () => {
+    expect(buildInboundFrontendPrompt()).toContain("answering an inbound phone call on Alex's behalf");
+  });
+
+  it('repeats the never-describe-another-booking security instruction — the voice layer is what talks about the calendar out loud', () => {
+    expect(buildInboundFrontendPrompt().toLowerCase()).toContain('never describe, confirm, or hint at any other event');
+  });
+
+  it('does not promise a cancel capability', () => {
+    const prompt = buildInboundFrontendPrompt();
+    expect(prompt).toContain('Cancelling a booking is not supported');
+    expect(prompt).toContain('do not tell them it has');
+  });
+
+  it('names no backend tool', () => {
+    const prompt = buildInboundFrontendPrompt();
+    for (const tool of ['check_availability', 'suggest_times', 'book_appointment', 'find_my_booking', 'reschedule_booking', 'flag_for_owner_and_end_call']) {
+      expect(prompt).not.toContain(tool);
+    }
+  });
+
+  it('carries the same warm greeting guidance as the full prompt for a family-tier caller', () => {
+    const prompt = buildInboundFrontendPrompt({ displayName: 'Mom', relationshipTier: 'family', isFrequent: false });
+    expect(prompt).toContain('Mom');
+    expect(prompt.toLowerCase()).toContain('family member');
   });
 });

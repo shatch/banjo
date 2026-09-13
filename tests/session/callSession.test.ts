@@ -83,6 +83,25 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe('CallSession: frontendSystemPrompt', () => {
+  it('passes frontendSystemPrompt through to voiceAI.connect as frontendInstructions, alongside the full systemPrompt', async () => {
+    const telephony = makeFakeTelephony();
+    const options = { ...makeFakeCallSessionOptions(telephony.provider), frontendSystemPrompt: 'voice-only prompt' };
+    await new CallSession(options).start();
+
+    expect(fakeVoiceAI.connect).toHaveBeenCalledWith(
+      expect.objectContaining({ instructions: 'irrelevant for this test', frontendInstructions: 'voice-only prompt' }),
+    );
+  });
+
+  it('sends no frontendInstructions when no frontendSystemPrompt is given', async () => {
+    const telephony = makeFakeTelephony();
+    await new CallSession(makeFakeCallSessionOptions(telephony.provider)).start();
+
+    expect(fakeVoiceAI.connect).toHaveBeenCalledWith(expect.not.objectContaining({ frontendInstructions: expect.anything() }));
+  });
+});
+
 describe('CallSession: telephony leg is always explicitly hung up', () => {
   // Regression test for a real bug: a live call cut off abruptly (dead
   // silence, no goodbye) right as the model was heading into
@@ -490,6 +509,91 @@ describe('CallSession: audio-aware hang-up wiring', () => {
     const sayVerbatimOrder = vi.mocked(fakeVoiceAI.sayVerbatim).mock.invocationCallOrder[0]!;
     const buildToolContextOrder = vi.mocked(options.buildToolContext).mock.invocationCallOrder[0]!;
     expect(sayVerbatimOrder).toBeLessThan(buildToolContextOrder);
+  });
+
+  it("for a tool with verbatimMessage, reads the provider's verbatim delivery report only after the forced speech finishes, and hands it to buildToolContext", async () => {
+    const report = { intended: 'Hi, please call back at 555-1234.', spoken: 'Hi, please call back.', matched: false };
+    const verbatimDeliveryReport = vi.fn(() => report);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fakeVoiceAI as any).verbatimDeliveryReport = verbatimDeliveryReport;
+    try {
+      const telephony = makeFakeTelephony();
+      const options = makeFakeCallSessionOptions(telephony.provider);
+      options.tools = [
+        {
+          name: 'leave_voicemail_and_end_call',
+          description: 'test-only voicemail tool',
+          schema: z.object({ message: z.string() }),
+          handler: vi.fn(async () => ({ ok: true })),
+          endsCall: true,
+          verbatimMessage: (input: { message: string }) => input.message,
+        },
+      ];
+      const session = new CallSession(options);
+      await session.start();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const handleToolCallPromise = (session as any).handleToolCall('call-1', 'leave_voicemail_and_end_call', { message: report.intended });
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent); // the pre-existing endsCall wait
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(verbatimDeliveryReport).not.toHaveBeenCalled(); // the forced speech hasn't finished yet
+
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent); // the forced speech itself
+      await handleToolCallPromise;
+
+      expect(verbatimDeliveryReport).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(options.buildToolContext).mock.calls[0]![1]).toBe(report);
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (fakeVoiceAI as any).verbatimDeliveryReport;
+    }
+  });
+
+  it('for a tool with verbatimMessage on a provider without verbatimDeliveryReport, passes no report — the handler keeps its trust-the-provider path', async () => {
+    const telephony = makeFakeTelephony();
+    const options = makeFakeCallSessionOptions(telephony.provider);
+    options.tools = [
+      {
+        name: 'leave_voicemail_and_end_call',
+        description: 'test-only voicemail tool',
+        schema: z.object({ message: z.string() }),
+        handler: vi.fn(async () => ({ ok: true })),
+        endsCall: true,
+        verbatimMessage: (input: { message: string }) => input.message,
+      },
+    ];
+    const session = new CallSession(options);
+    await session.start();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const handleToolCallPromise = (session as any).handleToolCall('call-1', 'leave_voicemail_and_end_call', { message: 'hi' });
+    voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+    await handleToolCallPromise;
+
+    expect(vi.mocked(options.buildToolContext).mock.calls[0]![1]).toBeUndefined();
+  });
+
+  it('for a tool without verbatimMessage, never reads a verbatim delivery report', async () => {
+    const verbatimDeliveryReport = vi.fn(() => ({ intended: 'stale', spoken: '', matched: false }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fakeVoiceAI as any).verbatimDeliveryReport = verbatimDeliveryReport;
+    try {
+      const telephony = makeFakeTelephony();
+      const options = makeFakeCallSessionOptions(telephony.provider);
+      options.tools = [{ name: 'check_my_availability', description: 'test-only', schema: z.object({}), handler: vi.fn(async () => ({ free: true })) }];
+      const session = new CallSession(options);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (session as any).handleToolCall('call-1', 'check_my_availability', {});
+
+      expect(verbatimDeliveryReport).not.toHaveBeenCalled();
+      expect(vi.mocked(options.buildToolContext).mock.calls[0]![1]).toBeUndefined();
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      delete (fakeVoiceAI as any).verbatimDeliveryReport;
+    }
   });
 
   it('for a tool with verbatimMessage, proceeds anyway after SPEAK_VERBATIM_TIMEOUT_MS if the forced speech never reports turn_end', async () => {
