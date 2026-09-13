@@ -219,12 +219,26 @@ export const leaveVoicemailAndEndCallTool: VoiceTool<{ message: string }> = defi
   endsCall: true,
   // CallSession forces this to be spoken (VoiceAIProvider.sayVerbatim) and
   // waits for it to finish before this handler ever runs — see
-  // VoiceTool.verbatimMessage's doc comment for why. The handler below is
-  // unchanged from before that existed: it only records the outcome and
-  // hangs up, exactly as its own tests (tests/voice/callTools.test.ts) verify.
+  // VoiceTool.verbatimMessage's doc comment for why. On a provider that can't
+  // guarantee verbatim playback (openai-live), ctx.verbatimDelivery says what
+  // was actually spoken: a mismatch is recorded as an escalation, never as a
+  // voicemail left, because Postgres records what the callee heard rather
+  // than what the model was asked to say. With no report (every other
+  // provider), the provider is trusted exactly as before.
   verbatimMessage: (input) => input.message,
   handler: async (input, ctx) => {
     return runToolSafely('leave_voicemail_and_end_call', async () => {
+      const delivery = ctx.verbatimDelivery;
+      if (delivery && !delivery.matched) {
+        await transitionTask(ctx.task.id, 'escalated', {
+          outcome: {
+            kind: 'escalated',
+            reason: `Voicemail delivery could not be verified — what was spoken did not match the intended message. Intended: "${delivery.intended}". Spoken: "${delivery.spoken || '(nothing)'}".`,
+          },
+        });
+        await hangUpAfterSpeaking(ctx);
+        return { ok: false, error: 'voicemail_delivery_unverified' };
+      }
       await transitionTask(ctx.task.id, 'voicemail_left', {
         outcome: { kind: 'voicemail_left', message: input.message },
       });

@@ -46,8 +46,9 @@ export function buildOutboundCallSessionOptions(params: {
   telephony: TelephonyProvider;
   calendar: CalendarProvider;
   systemPrompt: string;
+  frontendSystemPrompt?: string;
 }): CallSessionOptions<CallContext> {
-  const { task, callAttempt, contact, telephony, calendar, systemPrompt } = params;
+  const { task, callAttempt, contact, telephony, calendar, systemPrompt, frontendSystemPrompt } = params;
 
   // Shared by onFailure and onStatusChange's 'ended' case below: if the call
   // is over and the task never reached a terminal status, nothing else will
@@ -73,6 +74,7 @@ export function buildOutboundCallSessionOptions(params: {
     callId: callAttempt.id,
     telephony,
     systemPrompt,
+    frontendSystemPrompt,
     tools: outboundToolsFor(task),
 
     async beginCall() {
@@ -83,7 +85,7 @@ export function buildOutboundCallSessionOptions(params: {
       });
     },
 
-    async buildToolContext(estimatedAudioDoneAt: number): Promise<CallContext> {
+    async buildToolContext(estimatedAudioDoneAt, verbatimDelivery): Promise<CallContext> {
       return {
         task: (await getTask(task.id)) ?? task, // re-fetch so tool handlers see the latest status
         callAttempt,
@@ -91,6 +93,7 @@ export function buildOutboundCallSessionOptions(params: {
         telephony,
         calendar,
         estimatedAudioDoneAt,
+        verbatimDelivery,
       };
     },
 

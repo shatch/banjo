@@ -2,6 +2,7 @@ import { config } from '../config/index.js';
 import { ElevenLabsProvider } from './providers/elevenlabs.js';
 import { GeminiLiveProvider } from './providers/gemini.js';
 import { OpenAIRealtimeProvider } from './providers/openai.js';
+import { OpenAILiveProvider } from './providers/openaiLive.js';
 import type { VoiceAIProvider } from './types.js';
 
 /**
@@ -13,6 +14,8 @@ export function createVoiceAIProvider(): VoiceAIProvider {
   switch (config.VOICE_AI_PROVIDER) {
     case 'openai':
       return new OpenAIRealtimeProvider();
+    case 'openai-live':
+      return new OpenAILiveProvider();
     case 'gemini':
       return new GeminiLiveProvider();
     case 'elevenlabs':

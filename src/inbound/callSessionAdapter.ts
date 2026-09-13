@@ -18,8 +18,9 @@ export function buildInboundCallSessionOptions(params: {
   telephony: TelephonyProvider;
   calendar: CalendarProvider;
   systemPrompt: string;
+  frontendSystemPrompt?: string;
 }): CallSessionOptions<InboundCallContext> {
-  const { inboundCall, callerPhoneNumber, telephony, calendar, systemPrompt } = params;
+  const { inboundCall, callerPhoneNumber, telephony, calendar, systemPrompt, frontendSystemPrompt } = params;
 
   return {
     // Twilio's own CallSid — the id every TelephonyProvider method is keyed
@@ -29,6 +30,7 @@ export function buildInboundCallSessionOptions(params: {
     callId: inboundCall.twilioCallSid,
     telephony,
     systemPrompt,
+    frontendSystemPrompt,
     tools: inboundTools,
     greetOnConnect: true,
 

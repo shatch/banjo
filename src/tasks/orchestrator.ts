@@ -4,7 +4,7 @@ import { logger } from '../lib/logger.js';
 import { CallSession } from '../session/callSession.js';
 import { createTelephonyProvider } from '../telephony/factory.js';
 import { buildOutboundCallSessionOptions } from './callSessionAdapter.js';
-import { buildCallSystemPrompt } from './promptBuilder.js';
+import { buildCallFrontendPrompt, buildCallSystemPrompt } from './promptBuilder.js';
 import { createCallAttempt, getTask, listNonTerminalTasks, transitionTask } from './service.js';
 import type { TimeWindow } from './schema.js';
 
@@ -58,8 +58,11 @@ async function runTask(taskId: string): Promise<void> {
   const callAttempt = await createCallAttempt(task.id);
   const telephony = createTelephonyProvider();
   const systemPrompt = buildCallSystemPrompt(task, contact, candidateWindows);
+  const frontendSystemPrompt = buildCallFrontendPrompt(task, contact);
 
-  const session = new CallSession(buildOutboundCallSessionOptions({ task, callAttempt, contact, telephony, calendar, systemPrompt }));
+  const session = new CallSession(
+    buildOutboundCallSessionOptions({ task, callAttempt, contact, telephony, calendar, systemPrompt, frontendSystemPrompt }),
+  );
   await session.start();
 }
 

@@ -33,9 +33,19 @@ const envSchema = z
 
     DATABASE_URL: z.string().url(),
 
-    VOICE_AI_PROVIDER: z.enum(['openai', 'gemini', 'elevenlabs']),
+    VOICE_AI_PROVIDER: z.enum(['openai', 'openai-live', 'gemini', 'elevenlabs']),
     OPENAI_API_KEY: z.string().optional(),
     OPENAI_REALTIME_MODEL: z.string().default('gpt-realtime'),
+    // VOICE_AI_PROVIDER=openai-live (src/voice/providers/openaiLive.ts): the
+    // GPT-Live full-duplex voice front-end, with reasoning and tool calls
+    // delegated to a separate Responses backend model. Ships dark — never
+    // verified on a live call. Reuses OPENAI_API_KEY.
+    OPENAI_LIVE_MODEL: z.string().default('gpt-live-1'),
+    // Unconfirmed default: OpenAI's Live delegation docs use both
+    // gpt-5.6-terra and gpt-5.6-luna in different examples (both are valid
+    // Responses model ids in openai-node's model enum). See
+    // docs/ARCHITECTURE.md's Open Risks.
+    OPENAI_LIVE_BACKEND_MODEL: z.string().default('gpt-5.6-terra'),
     GEMINI_API_KEY: z.string().optional(),
     GEMINI_LIVE_MODEL: z.string().optional(),
     ELEVENLABS_API_KEY: z.string().optional(),
@@ -147,6 +157,10 @@ const envSchema = z
   })
   .refine((v) => v.VOICE_AI_PROVIDER !== 'openai' || !!v.OPENAI_API_KEY, {
     message: 'OPENAI_API_KEY is required when VOICE_AI_PROVIDER=openai',
+    path: ['OPENAI_API_KEY'],
+  })
+  .refine((v) => v.VOICE_AI_PROVIDER !== 'openai-live' || !!v.OPENAI_API_KEY, {
+    message: 'OPENAI_API_KEY is required when VOICE_AI_PROVIDER=openai-live',
     path: ['OPENAI_API_KEY'],
   })
   .refine((v) => v.VOICE_AI_PROVIDER !== 'gemini' || !!v.GEMINI_API_KEY, {

@@ -1,6 +1,7 @@
 import type { CalendarProvider } from '../calendar/types.js';
 import type { TelephonyProvider } from '../telephony/providers/types.js';
 import type { CallAttempt, Task } from '../tasks/schema.js';
+import type { VerbatimDeliveryReport } from '../voice/types.js';
 
 /**
  * Passed to every live-call tool handler (src/voice/tools/callTools.ts,
@@ -30,4 +31,6 @@ export interface CallContext {
   calendar: CalendarProvider;
   /** audioPlaybackTracker.estimatedDoneAt() (session/audioPlaybackTracker.ts) at the moment this context was built — the estimated wall-clock time by which every audio chunk sent so far will have finished playing on the phone leg. Used by hangUpAfterSpeaking (voice/tools/callTools.ts) to wait for trailing speech to finish before hanging up. */
   estimatedAudioDoneAt: number;
+  /** Set only for a tool with verbatimMessage, on a provider that reports verbatim delivery (VoiceAIProvider.verbatimDeliveryReport): what was actually spoken versus what was intended. Undefined means the provider can't verify and is trusted, as before. */
+  verbatimDelivery?: VerbatimDeliveryReport;
 }
