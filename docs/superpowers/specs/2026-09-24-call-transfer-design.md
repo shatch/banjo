@@ -69,11 +69,16 @@ transferCall?(callId: string, opts: { to: string }): Promise<void>;
    `DialCallStatus` is `completed` it returns `<Response><Hangup/></Response>`; otherwise
    `<Response><Say>{fallbackMessage}</Say><Hangup/></Response>`, XML-escaped. The fallback plays only when
    the principal was not reached.
-4. `finally`: `clearInboundRegistrationTimeout(callId)` and `forgetCall(callId)`, exactly as `hangUp()` does.
+4. Only after the REST update succeeds: `clearInboundRegistrationTimeout(callId)` and `forgetCall(callId)`.
    This does two jobs:
    - `isAnyCallActive()` doesn't latch true and wedge the inbound line.
    - `CallSession`'s teardown `hangUp()` (`callSession.ts`, `hangUpTelephony`) becomes a no-op via
-     `recentlyEnded`. Without it, the teardown would hang up the bridged call.
+     `recentlyEnded`. Without it, a teardown that runs before Twilio's stream `stop` arrives would hang up the
+     bridged call.
+
+   Unlike `hangUp()`, this is not in a `finally`. If the redirect fails, the call may still be live, and
+   forgetting it would cut Banjo off from a call it has to keep talking on. The media stream's `stop` and
+   socket-close handlers already forget the call whenever it really ends, so nothing is left behind either way.
 
 **Callback route** (`src/server.ts`): `POST /telephony/twilio/transfer-callback`. Signature-validated like the
 other Twilio routes. Replies with the TwiML above, and maps `DialCallStatus` to a `TransferResult`:
@@ -110,7 +115,8 @@ known fields, not XML bodies.
     `{ ok: true }`. If `transferAfterSpeaking` throws, it returns
     `{ ok: false, error: 'transfer_failed', message }` and does not call `onTransferred`.
 
-**Outbound tool** (`transferToOwnerTool` in `src/voice/tools/callTools.ts`, next to the other outcome tools),
+**Outbound tool** (`transferToOwnerTool` in `src/tasks/callSessionAdapter.ts`, beside `outboundToolsFor`; not in
+`callTools.ts`, which `callSessionAdapter.ts` imports, so importing `notifyTaskOutcome` back would be a cycle),
 whose hook does: `transitionTask(task.id, 'transferred', { outcome: { kind: 'transferred', reason } })`,
 then `notifyTaskOutcome(task.id)`. The transition runs after the redirect succeeds, never before: a failed
 redirect must not leave a task marked transferred while its call is still live. The `end()`/`fail()` wait for
@@ -182,7 +188,7 @@ Mirrors `src/`:
 - `tests/telephony/transfer.test.ts`: waits for playback before `transferCall`; passes `TRANSFER_TO_PHONE_NUMBER`; a throw becomes `transfer_failed` and skips `onTransferred`; a provider without
   `transferCall` gives `transfer_failed`.
 - `tests/telephony/twilio.test.ts`: TwiML shape (`<Dial>` with `action`, nothing after it); a running recording is stopped first; the call
-  is forgotten even when the REST update rejects; a later `hangUp()` for that call is a no-op.
+  is forgotten after a successful redirect (a later `hangUp()` is a no-op) and kept after a failed one.
 - `tests/server.test.ts`: callback signature validation, `DialCallStatus` mapping, `<Hangup/>` for `completed`
   vs the XML-escaped fallback `<Say>` otherwise, unknown `callId` ignored.
 - `tests/tasks/callSessionAdapter.test.ts`, `tests/inbound/tools.test.ts` and `tests/inbound/callSessionAdapter.test.ts`: the tool is present only when the flag is
@@ -200,7 +206,7 @@ Mirrors `src/`:
 
 ## Docs
 
-- `docs/ARCHITECTURE.md`: a transfer section, including why the event arm was dropped and why `finally` also
+- `docs/ARCHITECTURE.md`: a transfer section, including why the event arm was dropped and why forgetting the call after a successful redirect also
   protects the bridged call.
 - `README.md`: remove the "No call transfer" limitation; document the three env vars.
 - `docs/ROADMAP.md` item 2: cold transfer done; warm transfer and the whisper remain.
