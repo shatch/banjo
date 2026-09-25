@@ -23,6 +23,8 @@ const ALL_CONFIG_KEYS = [
   'VOICE_AI_PROVIDER', 'OPENAI_API_KEY', 'OPENAI_REALTIME_MODEL', 'OPENAI_LIVE_MODEL', 'OPENAI_LIVE_BACKEND_MODEL',
   'GEMINI_API_KEY', 'GEMINI_LIVE_MODEL', 'ELEVENLABS_API_KEY', 'ELEVENLABS_AGENT_ID',
   'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER', 'TWILIO_WEBHOOK_VALIDATION_ENABLED',
+  'CALENDAR_PROVIDER', 'CONTACTS_PROVIDER', 'DAV_USERNAME', 'DAV_PASSWORD', 'CALDAV_CALENDAR_URL', 'CARDDAV_ADDRESSBOOK_URL',
+  'GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS', 'CONTACTS_SYNC_INTERVAL_HOURS',
   'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'GOOGLE_OAUTH_REFRESH_TOKEN', 'GOOGLE_CALENDAR_ID',
   'NOTIFICATION_CHANNEL', 'NOTIFY_TO_PHONE_NUMBER', 'NOTIFY_FROM_PHONE_NUMBER',
   'MCP_API_KEY', 'TOOL_TIMEOUT_MS', 'LOG_TRANSCRIPTS',
@@ -90,6 +92,59 @@ describe('config: env schema', () => {
   it('fails fast when Twilio credentials are missing — Twilio is the only telephony provider', async () => {
     setEnv({ TWILIO_ACCOUNT_SID: '' });
     await expect(import('../src/config/index.js')).rejects.toThrow();
+  });
+
+  it('defaults CALENDAR_PROVIDER to google, with no CalDAV vars required', async () => {
+    setEnv({});
+    const { config } = await import('../src/config/index.js');
+    expect(config.CALENDAR_PROVIDER).toBe('google');
+  });
+
+  it('fails fast when CALENDAR_PROVIDER=caldav is missing its credentials', async () => {
+    setEnv({
+      CALENDAR_PROVIDER: 'caldav',
+      CALDAV_CALENDAR_URL: 'https://caldav.example.com/dav/calendars/user/me/work/',
+      DAV_USERNAME: 'me@example.com',
+    });
+    await expect(import('../src/config/index.js')).rejects.toThrow(/DAV_PASSWORD/);
+  });
+
+  it('accepts CALENDAR_PROVIDER=caldav with a calendar URL, username, and password', async () => {
+    setEnv({
+      CALENDAR_PROVIDER: 'caldav',
+      CALDAV_CALENDAR_URL: 'https://caldav.example.com/dav/calendars/user/me/work/',
+      DAV_USERNAME: 'me@example.com',
+      DAV_PASSWORD: 'app-password',
+    });
+    const { config } = await import('../src/config/index.js');
+    expect(config.CALENDAR_PROVIDER).toBe('caldav');
+  });
+
+  it('fails fast when CONTACTS_PROVIDER=carddav has no address book URL', async () => {
+    setEnv({ CONTACTS_PROVIDER: 'carddav', DAV_USERNAME: 'me@example.com', DAV_PASSWORD: 'app-password' });
+    await expect(import('../src/config/index.js')).rejects.toThrow(/CARDDAV_ADDRESSBOOK_URL/);
+  });
+
+  it('accepts CONTACTS_PROVIDER=carddav with an address book URL and the shared DAV sign-in', async () => {
+    setEnv({
+      CONTACTS_PROVIDER: 'carddav',
+      CARDDAV_ADDRESSBOOK_URL: 'https://carddav.example.com/dav/addressbooks/user/me/Default/',
+      DAV_USERNAME: 'me@example.com',
+      DAV_PASSWORD: 'app-password',
+    });
+    const { config } = await import('../src/config/index.js');
+    expect(config.CONTACTS_PROVIDER).toBe('carddav');
+  });
+
+  it('CONTACTS_SYNC_INTERVAL_HOURS wins over the older GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS, which still works alone', async () => {
+    setEnv({ GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS: '12' });
+    let mod = await import('../src/config/index.js');
+    expect(mod.contactsSyncIntervalHours()).toBe(12);
+
+    vi.resetModules();
+    setEnv({ GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS: '12', CONTACTS_SYNC_INTERVAL_HOURS: '1' });
+    mod = await import('../src/config/index.js');
+    expect(mod.contactsSyncIntervalHours()).toBe(1);
   });
 
   it('fails fast when NOTIFICATION_CHANNEL=twilio_sms without notify phone numbers', async () => {

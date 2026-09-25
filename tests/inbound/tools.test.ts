@@ -509,7 +509,7 @@ describe('findMyBookingTool.handler', () => {
 describe('suggestTimesTool.handler', () => {
   it('spreads its 5 suggestions across the whole open day instead of only ever returning the earliest morning slots', async () => {
     // Regression test for live-call feedback: on a day with no busy events
-    // at all, chunkIntoWindows (googleCalendarProvider.ts) produces 16
+    // at all, chunkIntoWindows (src/calendar/freeSlots.ts) produces 16
     // consecutive 30-minute windows for a 9am-5pm business day, in
     // chronological order. A bare .slice(0, 5) always took the first 5 —
     // 9:00, 9:30, 10:00, 10:30, 11:00 — every one of them morning. The

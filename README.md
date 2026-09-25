@@ -14,7 +14,7 @@ Banjo is the phone half of a pair. The other half is a Claude Code skill
 be done online — and only picks up the phone when it can't.
 
 It also answers your number, if you want it to: an optional inbound line where people can book,
-check or reschedule with you, recognizing callers already in your Google Contacts.
+check or reschedule with you, recognizing callers already in your Google or CardDAV (Fastmail, iCloud) contacts.
 
 ## Hear it
 
@@ -148,7 +148,12 @@ Banjo needs four things before it can place a real call — get these first:
    default — Gemini Live and ElevenLabs Conversational AI are supported but flagged
    `NEEDS VERIFICATION` in a few places (see `docs/ARCHITECTURE.md`'s Open Risks section) since they haven't
    carried live call traffic the way the OpenAI path has. Get an API key from whichever you pick.
-3. **A Google OAuth client + refresh token**, if you want live calendar-aware booking and/or Google Contacts
+3. **Calendar and contacts access**, if you want live calendar-aware booking and caller ID. Either
+   CalDAV/CardDAV (Fastmail, iCloud, Nextcloud) with an app password — set `CALENDAR_PROVIDER=caldav`
+   and/or `CONTACTS_PROVIDER=carddav`, see `docs/RUNBOOKS.md`'s "Connecting Fastmail calendar and
+   contacts" — or Google, below.
+
+   **A Google OAuth client + refresh token**, if you want Google Calendar and/or Google Contacts
    integration (caller-ID personalization, `find_contact` fallback) — the two share one client and one
    refresh token minted with both scopes at once. See `docs/RUNBOOKS.md`'s "Minting `GOOGLE_OAUTH_REFRESH_TOKEN`"
    runbook for the exact steps, and `docs/ARCHITECTURE.md`'s Calendar/Google Contacts sections for how each is

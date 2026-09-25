@@ -50,7 +50,7 @@ function formatStartForModel(confirmedStart: Date): string {
  * Picks `count` items evenly spread across `items` (always including the
  * first and last) rather than the first `count` in order. suggest_times'
  * candidate windows come back in chronological order from
- * chunkIntoWindows (googleCalendarProvider.ts) — on a wide-open day, a
+ * chunkIntoWindows (src/calendar/freeSlots.ts) — on a wide-open day, a
  * bare slice(0, count) returned nothing but consecutive early-morning
  * slots, and the model had no way to know later slots existed at all, so
  * it told callers only mornings were free.

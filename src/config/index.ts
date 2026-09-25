@@ -106,6 +106,29 @@ const envSchema = z
       .default('true')
       .transform((v) => v === 'true'),
 
+    // Which backend holds the principal's calendar. 'google' uses the OAuth
+    // vars below; 'caldav' (Fastmail, iCloud, Nextcloud, ...) uses
+    // CALDAV_CALENDAR_URL and the DAV_* app password. See
+    // src/calendar/factory.ts.
+    CALENDAR_PROVIDER: z.enum(['google', 'caldav']).default('google'),
+    // Where the principal's contacts come from, for caller ID and
+    // find_contact's fallback: 'google' (People API, the OAuth vars below),
+    // 'carddav' (CARDDAV_ADDRESSBOOK_URL and the DAV_* app password), or
+    // 'none'. See src/carddavContacts/.
+    CONTACTS_PROVIDER: z.enum(['google', 'carddav', 'none']).default('google'),
+    // One account's sign-in for both CalDAV and CardDAV — for Fastmail, the
+    // account's email address and an app password with calendar and
+    // contacts access.
+    DAV_USERNAME: z.string().min(1).optional(),
+    DAV_PASSWORD: z.string().min(1).optional(),
+    // The one calendar collection to read and write, e.g.
+    // https://caldav.fastmail.com/dav/calendars/user/you@fastmail.com/<calendar-id>/
+    // `npm run dav:check` lists an account's calendars and address books with their URLs.
+    CALDAV_CALENDAR_URL: z.string().url().optional(),
+    // The one address book to sync, e.g.
+    // https://carddav.fastmail.com/dav/addressbooks/user/you@fastmail.com/Default/
+    CARDDAV_ADDRESSBOOK_URL: z.string().url().optional(),
+
     GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
     GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
     GOOGLE_OAUTH_REFRESH_TOKEN: z.string().optional(),
@@ -210,6 +233,9 @@ const envSchema = z
     // interval; see src/googleContacts/sync.ts and this plan's Global
     // Constraints for why incremental sync was dropped from the design.
     GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS: z.coerce.number().int().positive().default(6),
+    // Provider-neutral name for the same interval; wins when set. Kept
+    // alongside the old name so existing .env files keep working.
+    CONTACTS_SYNC_INTERVAL_HOURS: z.coerce.number().int().positive().optional(),
     // Interaction count (tasks + inbound calls tied to a contact) at or
     // above which an inbound caller with no Google relationship tier still
     // gets a warmer "welcome back" greeting. See src/inbound/callerContext.ts.
@@ -230,6 +256,14 @@ const envSchema = z
   .refine((v) => v.VOICE_AI_PROVIDER !== 'elevenlabs' || !!(v.ELEVENLABS_API_KEY && v.ELEVENLABS_AGENT_ID), {
     message: 'ELEVENLABS_API_KEY and ELEVENLABS_AGENT_ID are required when VOICE_AI_PROVIDER=elevenlabs',
     path: ['ELEVENLABS_API_KEY'],
+  })
+  .refine((v) => v.CALENDAR_PROVIDER !== 'caldav' || !!(v.CALDAV_CALENDAR_URL && v.DAV_USERNAME && v.DAV_PASSWORD), {
+    message: 'CALDAV_CALENDAR_URL, DAV_USERNAME, and DAV_PASSWORD are required when CALENDAR_PROVIDER=caldav',
+    path: ['CALDAV_CALENDAR_URL'],
+  })
+  .refine((v) => v.CONTACTS_PROVIDER !== 'carddav' || !!(v.CARDDAV_ADDRESSBOOK_URL && v.DAV_USERNAME && v.DAV_PASSWORD), {
+    message: 'CARDDAV_ADDRESSBOOK_URL, DAV_USERNAME, and DAV_PASSWORD are required when CONTACTS_PROVIDER=carddav',
+    path: ['CARDDAV_ADDRESSBOOK_URL'],
   })
   .refine((v) => !!(v.TWILIO_ACCOUNT_SID && v.TWILIO_AUTH_TOKEN && v.TWILIO_PHONE_NUMBER), {
     message: 'TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER are required — Twilio is the only telephony provider',
@@ -264,3 +298,8 @@ export function disclosureLine(): string {
   return config.RECORD_CALLS && !RECORDING_NOTICE.test(line) ? `${line} This call is recorded.` : line;
 }
 export type AppConfig = typeof config;
+
+/** How often the contacts cache refreshes, under whichever name is set. */
+export function contactsSyncIntervalHours(): number {
+  return config.CONTACTS_SYNC_INTERVAL_HOURS ?? config.GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS;
+}

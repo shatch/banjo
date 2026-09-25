@@ -19,13 +19,15 @@
     "predb:migrate": "npm run build",
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
-    "test:call": "tsx scripts/manual-test-call.ts"
+    "test:call": "tsx scripts/manual-test-call.ts",
+    "dav:check": "tsx scripts/dav-check.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "@modelcontextprotocol/sdk": "^1.9.0",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "^5.11.1",
     "googleapis": "^178.0.0",
     "hono": "^4.6.13",
     "libphonenumber-js": "^1.13.12",

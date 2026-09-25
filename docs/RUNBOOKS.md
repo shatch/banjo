@@ -82,6 +82,45 @@ manual stopgap until then.
 
 ---
 
+## Connecting Fastmail calendar and contacts
+
+Banjo can read availability from, and write bookings to, one CalDAV calendar, and keep its contacts
+cache in step with one CardDAV address book. Both sign in with one app password, never your account
+password. These steps are for Fastmail; iCloud and Nextcloud work the same way with their own app
+passwords and servers.
+
+### Steps
+
+1. **Make an app password.** In Fastmail, open Settings → Privacy & Security and create a new app
+   password there. Give it calendar (CalDAV) and contacts (CardDAV) access — nothing else — if
+   Fastmail offers the choice, and name it "Banjo" so it's easy to find and revoke.
+2. **Add it to `.env`** (git-ignored; Docker reads it through `env_file`):
+
+   ```bash
+   DAV_USERNAME=you@fastmail.com
+   DAV_PASSWORD=<the app password>
+   ```
+
+3. **Pick a calendar and an address book.** `npm run dav:check` signs in and lists both with their
+   URLs. Copy one of each into `CALDAV_CALENDAR_URL` and `CARDDAV_ADDRESSBOOK_URL`. Fastmail's look like
+   `https://caldav.fastmail.com/dav/calendars/user/you@fastmail.com/<id>/` and
+   `https://carddav.fastmail.com/dav/addressbooks/user/you@fastmail.com/Default/`.
+4. **Check what Banjo sees.** Run `npm run dav:check` again. For the address book it counts contacts,
+   those with phone numbers (only they can identify a caller), groups, and relations — Banjo treats
+   groups named "Family" or "Friends" and relations like spouse or child as close contacts. For the
+   calendar it lists the next 7 days of busy times in `CALENDAR_TIMEZONE`; events marked free, declined
+   invitations, and all-day events not marked busy are deliberately left out. Nothing is written
+   anywhere.
+5. **Switch over.** Set `CALENDAR_PROVIDER=caldav` and/or `CONTACTS_PROVIDER=carddav` and restart.
+   Boot fails fast if a URL or the `DAV_*` sign-in is missing. On its first CardDAV sync, Banjo makes
+   the contacts cache match the address book exactly, which removes any rows from Google Contacts.
+   Your curated `contacts` table isn't touched.
+
+To revoke Banjo's access, delete the app password in Fastmail. Availability checks then fail with
+HTTP 401, and contact syncs log the failure and keep the last cache, until you add a new one.
+
+---
+
 ## Minting `GOOGLE_OAUTH_REFRESH_TOKEN` (Calendar + Contacts)
 
 Banjo's Calendar and Google Contacts integrations share one OAuth2 client and refresh token — the same

@@ -1,11 +1,11 @@
 import type { people_v1 } from 'googleapis';
-import { config } from '../config/index.js';
+import { config, contactsSyncIntervalHours } from '../config/index.js';
 import { db } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import { logGoogleContactsError } from './googleApiErrors.js';
 import { createPeopleClient } from './googlePeopleClient.js';
 import { normalizePhoneNumber } from './phoneNormalization.js';
-import { googleContacts, type GoogleContact, type GooglePhoneNumber } from './schema.js';
+import { googleContacts, type GoogleContact, type GooglePhoneNumber, type NewGoogleContact } from './schema.js';
 
 const PERSON_FIELDS = 'names,phoneNumbers,emailAddresses,relations,memberships';
 const PAGE_SIZE = 200;
@@ -67,22 +67,30 @@ export async function upsertGoogleContact(
     .map((resourceName) => groupLabelsByResourceName.get(resourceName))
     .filter((label): label is string => !!label);
 
-  const values = {
+  return upsertCachedContact({
     googleResourceName: person.resourceName,
     displayName,
     phoneNumbers,
     email,
     relationLabels,
     groupLabels,
-    lastSyncedAt: new Date(),
-  };
+  });
+}
 
-  const [row] = await db
+/**
+ * Writes one row of the contacts cache, whichever source it came from
+ * (Google here, CardDAV in src/carddavContacts/sync.ts), keyed by
+ * googleResourceName. Every field is replaced, so pass `null` — not
+ * `undefined` — for a value the source stopped reporting (see `email` above).
+ */
+export async function upsertCachedContact(values: Omit<NewGoogleContact, 'id' | 'lastSyncedAt'>): Promise<GoogleContact | undefined> {
+  const row = { ...values, lastSyncedAt: new Date() };
+  const [upserted] = await db
     .insert(googleContacts)
-    .values(values)
-    .onConflictDoUpdate({ target: googleContacts.googleResourceName, set: values })
+    .values(row)
+    .onConflictDoUpdate({ target: googleContacts.googleResourceName, set: row })
     .returning();
-  return row;
+  return upserted;
 }
 
 async function syncOnce(): Promise<void> {
@@ -122,8 +130,8 @@ export async function runGoogleContactsSync(): Promise<void> {
   }
 }
 
-/** Runs once immediately, then on GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS. */
+/** Runs once immediately, then every contactsSyncIntervalHours(). */
 export function startGoogleContactsSyncPoller(): void {
   void runGoogleContactsSync();
-  setInterval(() => void runGoogleContactsSync(), config.GOOGLE_CONTACTS_SYNC_INTERVAL_HOURS * 60 * 60 * 1000);
+  setInterval(() => void runGoogleContactsSync(), contactsSyncIntervalHours() * 60 * 60 * 1000);
 }

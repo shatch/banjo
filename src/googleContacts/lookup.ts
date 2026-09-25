@@ -1,4 +1,6 @@
 import { ilike, sql } from 'drizzle-orm';
+import { syncCardDavContacts } from '../carddavContacts/sync.js';
+import { config } from '../config/index.js';
 import { db } from '../db/index.js';
 import { withTimeout as raceWithTimeout } from '../lib/withTimeout.js';
 import { logGoogleContactsError } from './googleApiErrors.js';
@@ -82,7 +84,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
   try {
     return await raceWithTimeout(promise, timeoutMs);
   } catch (err) {
-    logGoogleContactsError(err, 'Google Contacts live lookup failed');
+    logGoogleContactsError(err, `${config.CONTACTS_PROVIDER === 'carddav' ? 'CardDAV' : 'Google'} contacts live lookup failed`);
     return undefined;
   }
 }
@@ -111,9 +113,22 @@ async function liveSearch(query: string, preferE164?: string): Promise<GoogleCon
   return matches;
 }
 
+/**
+ * CardDAV's live fallback: pull whatever changed in the address book since
+ * the last sync (usually nothing, so it's quick), then ask the cache again.
+ * Searching the server directly wouldn't work for phone numbers — vCards
+ * store them as typed ("(555) 123-4567"), so a text search for E.164 misses.
+ */
+async function refreshThen<T>(read: () => Promise<T>): Promise<T> {
+  await syncCardDavContacts();
+  return read();
+}
+
 export async function findByPhone(e164: string, timeoutMs = INBOUND_LOOKUP_TIMEOUT_MS): Promise<GoogleContactMatch | undefined> {
   const cached = await findCachedByPhone(e164);
   if (cached) return cached;
+  if (config.CONTACTS_PROVIDER === 'none') return undefined;
+  if (config.CONTACTS_PROVIDER === 'carddav') return withTimeout(refreshThen(() => findCachedByPhone(e164)), timeoutMs);
   const live = await withTimeout(liveSearch(e164, e164), timeoutMs);
   // No `?? live[0]` fallback: people.searchContacts matches fuzzily, so a
   // result that doesn't actually hold the queried number is a different
@@ -125,6 +140,8 @@ export async function findByPhone(e164: string, timeoutMs = INBOUND_LOOKUP_TIMEO
 export async function findByName(query: string, timeoutMs = OUTBOUND_LOOKUP_TIMEOUT_MS): Promise<GoogleContactMatch[]> {
   const cached = await findCachedByName(query);
   if (cached.length > 0) return cached;
+  if (config.CONTACTS_PROVIDER === 'none') return [];
+  if (config.CONTACTS_PROVIDER === 'carddav') return (await withTimeout(refreshThen(() => findCachedByName(query)), timeoutMs)) ?? [];
   const live = await withTimeout(liveSearch(query), timeoutMs);
   return live ?? [];
 }

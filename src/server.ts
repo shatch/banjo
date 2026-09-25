@@ -3,7 +3,7 @@ import { Hono, type Context } from 'hono';
 import type { IncomingMessage } from 'node:http';
 import { WebSocketServer, type WebSocket } from 'ws';
 import twilioLib from 'twilio';
-import { GoogleCalendarProvider } from './calendar/googleCalendarProvider.js';
+import { createCalendarProvider } from './calendar/factory.js';
 import { config } from './config/index.js';
 import { buildInboundCallSessionOptions } from './inbound/callSessionAdapter.js';
 import { resolveCallerContext } from './inbound/callerContext.js';
@@ -77,7 +77,7 @@ app.route('/', healthRoutes);
 registerMcpRoutes(app);
 
 const telephony = createTelephonyProvider() as unknown as TwilioHttpHooks;
-const calendar = new GoogleCalendarProvider();
+const calendar = createCalendarProvider();
 
 app.post('/telephony/twilio/twiml', async (c) => {
   const body = await c.req.parseBody();
