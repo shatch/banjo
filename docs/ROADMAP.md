@@ -68,7 +68,7 @@ made, not deferred. See item 3 — if only one of the two ships, ship them toget
 
 ## 2. Call transfer, behind a flag
 
-> **Cold transfer shipped** with #7: `TRANSFER_ENABLED`,
+> **Cold transfer shipped** with #7 ([PR #67](https://github.com/shatch/banjo/pull/67)): `TRANSFER_ENABLED`,
 > `TRANSFER_TO_PHONE_NUMBER`, a REST-redirect `<Dial>` to one fixed number, only after the other
 > party agrees, gated on both the tool and the prompt rule. See `docs/ARCHITECTURE.md`'s "Call
 > transfer (#7)" section for how it works. Still open: **warm transfer** (needs a second concurrent
