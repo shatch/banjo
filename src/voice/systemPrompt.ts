@@ -10,6 +10,11 @@ import { config, disclosureLine } from '../config/index.js';
 
 type CallDirection = 'outbound' | 'inbound';
 
+// #7: must match telephony/transfer.ts's TRANSFER_TOOL_NAME. Not imported
+// from there — this module deliberately depends only on config, and
+// transfer.ts imports callTools.ts, which pulls in the task service and DB.
+const TRANSFER_TOOL_NAME = 'transfer_to_owner';
+
 /**
  * One blank-line-separated block of the base guidance. `voiceLayer` marks
  * whether the block also belongs in the voice-layer prompt of a provider that
@@ -23,7 +28,7 @@ interface GuidanceSection {
 }
 
 function guidanceSections(direction: CallDirection): GuidanceSection[] {
-  return [
+  const sections: GuidanceSection[] = [
     {
       voiceLayer: true,
       lines: [
@@ -139,6 +144,29 @@ function guidanceSections(direction: CallDirection): GuidanceSection[] {
       ],
     },
   ];
+
+  if (config.TRANSFER_ENABLED) sections.push(transferSection(direction));
+  return sections;
+}
+
+/**
+ * When to hand the call to the principal (#7). Only present when
+ * TRANSFER_ENABLED is on, alongside the tool itself. Part of the fixed rules,
+ * ahead of the owner profile, so a profile line can't widen it.
+ */
+function transferSection(direction: CallDirection): GuidanceSection {
+  const principal = config.ASSISTANT_PRINCIPAL_NAME;
+  const fallback = direction === 'outbound' ? 'escalate_and_end_call' : 'flag_for_owner_and_end_call';
+  return {
+    voiceLayer: true,
+    lines: [
+      `Transferring to ${principal}:`,
+      `- You can connect the other party to ${principal} by phone with ${TRANSFER_TOOL_NAME}. Use it only when they need ${principal} personally: they ask for ${principal}, they need payment or personal details only ${principal} can give, or they need a decision you can't make. Anything else, handle yourself or end the call as usual.`,
+      `- First ask whether they'd like to be connected to ${principal} now. Transfer only after a clear yes; if they decline, carry on without it.`,
+      `- Once they agree, say one short handoff line such as "Connecting you now, one moment." Then use ${TRANSFER_TOOL_NAME} with a short reason, and say nothing after it — you are off the call.`,
+      `- If the transfer fails, apologize briefly, then use ${fallback} with the reason instead.`,
+    ],
+  };
 }
 
 /**

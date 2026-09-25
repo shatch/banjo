@@ -228,3 +228,38 @@ describe('after a booking goes through, say what was booked (#44)', () => {
     });
   }
 });
+
+describe('transfer guidance (#7)', () => {
+  it('is absent when TRANSFER_ENABLED is off, and present in every prompt when on', async () => {
+    const { config } = await import('../../src/config/index.js');
+    try {
+      config.TRANSFER_ENABLED = false;
+      for (const direction of ['outbound', 'inbound'] as const) {
+        expect(buildBaseSystemPromptGuidance(direction)).not.toContain('transfer_to_owner');
+        expect(buildFrontendSystemPromptGuidance(direction)).not.toContain('transfer_to_owner');
+      }
+      config.TRANSFER_ENABLED = true;
+      for (const direction of ['outbound', 'inbound'] as const) {
+        expect(buildBaseSystemPromptGuidance(direction)).toContain('transfer_to_owner');
+        expect(buildFrontendSystemPromptGuidance(direction)).toContain('transfer_to_owner');
+      }
+    } finally {
+      config.TRANSFER_ENABLED = false;
+    }
+  });
+
+  it("asks before transferring, and falls back to the direction's own escalation tool", async () => {
+    const { config } = await import('../../src/config/index.js');
+    try {
+      config.TRANSFER_ENABLED = true;
+      const outbound = buildBaseSystemPromptGuidance('outbound');
+      const inbound = buildBaseSystemPromptGuidance('inbound');
+      expect(outbound).toMatch(/ask .*whether they'd like to be connected/i);
+      expect(outbound).toContain('escalate_and_end_call');
+      expect(inbound).toContain('flag_for_owner_and_end_call');
+      expect(inbound).not.toContain('escalate_and_end_call');
+    } finally {
+      config.TRANSFER_ENABLED = false;
+    }
+  });
+});
