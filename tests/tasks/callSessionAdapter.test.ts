@@ -225,6 +225,55 @@ describe('buildOutboundCallSessionOptions', () => {
   });
 });
 
+describe('transfer_to_owner on outbound calls (#7)', () => {
+  let config: typeof import('../../src/config/index.js').config;
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    ({ config } = await import('../../src/config/index.js'));
+    config.TRANSFER_TO_PHONE_NUMBER = '+15557654321';
+  });
+  afterEach(() => {
+    config.TRANSFER_ENABLED = false;
+  });
+
+  const build = () =>
+    buildOutboundCallSessionOptions({
+      task: fakeTask, callAttempt: fakeCallAttempt, contact: fakeContact,
+      telephony: fakeTelephony, calendar: fakeCalendar, systemPrompt: 'irrelevant',
+    });
+
+  it('is offered only when TRANSFER_ENABLED is on', () => {
+    config.TRANSFER_ENABLED = false;
+    expect(build().tools.map((t) => t.name)).not.toContain('transfer_to_owner');
+    config.TRANSFER_ENABLED = true;
+    expect(build().tools.map((t) => t.name)).toContain('transfer_to_owner');
+  });
+
+  it('records the task as transferred after the redirect succeeds', async () => {
+    const { transferToOwnerTool } = await import('../../src/tasks/callSessionAdapter.js');
+    const telephony = { ...fakeTelephony, transferCall: vi.fn(async () => {}) };
+    const result = await transferToOwnerTool.handler(
+      { reason: 'they need a card number' },
+      { task: { id: 'task-1', status: 'negotiating' }, callId: 'call-attempt-1', telephony, estimatedAudioDoneAt: Date.now() } as never,
+    );
+    expect(result).toEqual({ ok: true });
+    expect(transitionTask).toHaveBeenCalledWith('task-1', 'transferred', {
+      outcome: { kind: 'transferred', reason: 'they need a card number' },
+    });
+  });
+
+  it('leaves the task alone when the redirect fails', async () => {
+    const { transferToOwnerTool } = await import('../../src/tasks/callSessionAdapter.js');
+    const telephony = { ...fakeTelephony, transferCall: vi.fn(async () => { throw new Error('twilio 500'); }) };
+    const result = await transferToOwnerTool.handler(
+      { reason: 'x' },
+      { task: { id: 'task-1', status: 'negotiating' }, callId: 'call-attempt-1', telephony, estimatedAudioDoneAt: Date.now() } as never,
+    );
+    expect(result).toMatchObject({ ok: false, error: 'transfer_failed' });
+    expect(transitionTask).not.toHaveBeenCalled();
+  });
+});
+
 describe('clearing the live-call registration when a call really ends', () => {
   // The registration has to outlive CallSession.start(), which returns as soon
   // as the call is set up — so the adapter's end-of-call signals are what

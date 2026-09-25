@@ -10,6 +10,7 @@ import type { DisclosureResult } from '../session/disclosure.js';
 import { createNotificationChannel } from '../notifications/twilioSms.js';
 import { pressDigitsTool } from '../telephony/dtmf.js';
 import type { TelephonyProvider } from '../telephony/providers/types.js';
+import { defineTransferTool } from '../telephony/transfer.js';
 import { callTools, endConversationCallTool } from '../voice/tools/callTools.js';
 import type { VoiceTool } from '../voice/tools/defineVoiceTool.js';
 import { unregisterLiveCall } from './liveCalls.js';
@@ -32,13 +33,27 @@ export async function notifyTaskOutcome(taskId: string, disclosure?: DisclosureR
   await createNotificationChannel().notify(current.id, current.outcome, summary);
 }
 
+/**
+ * transfer_to_owner for outbound calls (#7). Defined here rather than in
+ * voice/tools/callTools.ts: recording it needs notifyTaskOutcome from this
+ * file, and this file already imports callTools.ts.
+ */
+export const transferToOwnerTool = defineTransferTool<CallContext>({
+  async onTransferred(input, ctx) {
+    await transitionTask(ctx.task.id, 'transferred', { outcome: { kind: 'transferred', reason: input.reason } });
+    await notifyTaskOutcome(ctx.task.id);
+  },
+});
+
 /** All live-call tools for an outbound call, keyed by name — check_my_availability/confirm_appointment/etc.
  *  (backend-service tools) plus press_digits (telephony-layer, routed differently — see telephony/dtmf.ts).
  *  Conversation-mode tasks additionally get end_conversation_call — see docs/superpowers/specs/
- *  2026-08-12-outbound-conversational-call-design.md for why this is additive, not a separate restricted set. */
+ *  2026-08-12-outbound-conversational-call-design.md for why this is additive, not a separate restricted set.
+ *  transfer_to_owner is added only when TRANSFER_ENABLED is on (#7). */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function outboundToolsFor(task: Task): VoiceTool<any, CallContext>[] {
   const base: VoiceTool<any, CallContext>[] = [...callTools, pressDigitsTool];
+  if (config.TRANSFER_ENABLED) base.push(transferToOwnerTool);
   return task.mode === 'conversation' ? [...base, endConversationCallTool] : base;
 }
 

@@ -4,6 +4,7 @@ import { config } from '../config/index.js';
 import { childLogger } from '../lib/logger.js';
 import { formatInZone } from '../lib/timezone.js';
 import { sendOwnerSms } from '../notifications/twilioSms.js';
+import { defineTransferTool } from '../telephony/transfer.js';
 import { combineDateTimeToIso, hangUpAfterSpeaking, runToolSafely } from '../voice/tools/callTools.js';
 import { defineVoiceTool, toToolDefinition, type VoiceTool } from '../voice/tools/defineVoiceTool.js';
 import type { ToolDefinition } from '../voice/types.js';
@@ -412,3 +413,17 @@ export const inboundTools: VoiceTool<any, InboundCallContext>[] = [
 ] as VoiceTool<any, InboundCallContext>[];
 
 export const inboundToolDefinitions: ToolDefinition[] = inboundTools.map(toToolDefinition);
+
+/** transfer_to_owner for inbound calls (#7): no task to record, so the owner gets a text saying who is coming through. */
+export const inboundTransferToOwnerTool = defineTransferTool<InboundCallContext>({
+  async onTransferred(input, ctx) {
+    await sendOwnerSms(`Transferring inbound caller ${ctx.callerPhoneNumber} to you — ${input.reason}`);
+  },
+});
+
+/** The inbound tool list for this process's config: inboundTools, plus transfer_to_owner when TRANSFER_ENABLED is on. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function inboundToolsFor(): VoiceTool<any, InboundCallContext>[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return config.TRANSFER_ENABLED ? [...inboundTools, inboundTransferToOwnerTool as VoiceTool<any, InboundCallContext>] : inboundTools;
+}
