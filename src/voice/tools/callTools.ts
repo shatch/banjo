@@ -72,9 +72,14 @@ function sleep(ms: number): Promise<void> {
 const HANGUP_SAFETY_MARGIN_MS = 400; // covers Twilio's own network/buffering lag beyond our send time
 const MAX_HANGUP_WAIT_MS = 6000; // stays comfortably under TOOL_TIMEOUT_MS (default 8000ms) so a long trailing utterance can never blow the enclosing tool call's timeout budget
 
-export async function hangUpAfterSpeaking(ctx: { telephony: TelephonyProvider; callId: string; estimatedAudioDoneAt: number }): Promise<void> {
+/** Waits until the model's own trailing speech has played out (capped at MAX_HANGUP_WAIT_MS). Shared with telephony/transfer.ts. */
+export async function waitForPlayback(ctx: { estimatedAudioDoneAt: number }): Promise<void> {
   const waitMs = Math.min(MAX_HANGUP_WAIT_MS, Math.max(0, ctx.estimatedAudioDoneAt - Date.now()) + HANGUP_SAFETY_MARGIN_MS);
   await sleep(waitMs);
+}
+
+export async function hangUpAfterSpeaking(ctx: { telephony: TelephonyProvider; callId: string; estimatedAudioDoneAt: number }): Promise<void> {
+  await waitForPlayback(ctx);
   await ctx.telephony.hangUp(ctx.callId);
 }
 
