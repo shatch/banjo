@@ -170,6 +170,8 @@ export class CallSession<TCtx = CallContext> {
   private readonly audioPlaybackTracker: AudioPlaybackTracker;
   private providerCallId: string | null = null;
   private toolPendingWatchdog: ReturnType<typeof setTimeout> | null = null;
+  /** The tool call whose budget toolPendingWatchdog is timing; only it may clear the watchdog. */
+  private toolPendingWatchdogOwner: string | null = null;
   private turnEndWaiters: Array<() => void> = [];
   private silenceWatchdog: ReturnType<typeof setTimeout> | null = null;
   private silenceNudgeSent = false;
@@ -480,10 +482,13 @@ export class CallSession<TCtx = CallContext> {
       this.voiceAI.sendToolResult(toolCallId, { ok: false, error: 'call_ended' }, true);
       return;
     }
+    const tool = this.toolRegistry.get(name);
     // A call-ending tool is still running (transfer_to_owner waiting on
-    // Twilio). Refuse without touching state or its tool-pending watchdog:
-    // another end_call could hang up mid-transfer (#7).
-    if (this.callEndingToolCallId !== null) {
+    // Twilio). Refuse another call-ending tool without touching state or the
+    // running tool's watchdog: a second end_call could hang up mid-transfer
+    // (#7). A non-ending tool still runs — one response can carry end_call
+    // and confirm_appointment together, and the booking must land.
+    if (this.callEndingToolCallId !== null && tool?.endsCall) {
       logger.warn(
         { callId: this.opts.callId, toolCallId, name, callEndingToolCallId: this.callEndingToolCallId },
         'Refusing a tool call while a call-ending tool is still running',
@@ -493,7 +498,7 @@ export class CallSession<TCtx = CallContext> {
         {
           ok: false,
           error: 'call_ending',
-          message: 'An earlier tool call is already ending or transferring this call. Do not call another tool; wait for its result.',
+          message: 'An earlier tool call is already ending or transferring this call. Do not call another tool to end it; wait for its result.',
         },
         true,
       );
@@ -506,10 +511,9 @@ export class CallSession<TCtx = CallContext> {
     // to always eventually emit *something*.
     this.armToolPendingWatchdog(toolCallId, name, TOOL_PENDING_WATCHDOG_MS);
 
-    const tool = this.toolRegistry.get(name);
     if (!tool) {
       this.voiceAI.sendToolResult(toolCallId, { ok: false, error: 'unknown_tool' }, true);
-      this.clearWatchdogAndResume();
+      this.clearWatchdogAndResume(toolCallId);
       return;
     }
 
@@ -531,7 +535,7 @@ export class CallSession<TCtx = CallContext> {
         },
         true,
       );
-      this.clearWatchdogAndResume();
+      this.clearWatchdogAndResume(toolCallId);
       return;
     }
 
@@ -544,7 +548,7 @@ export class CallSession<TCtx = CallContext> {
         'tool call rejected: arguments failed schema validation',
       );
       this.voiceAI.sendToolResult(toolCallId, { ok: false, error: 'invalid_arguments', details: parsed.error.flatten() }, true);
-      this.clearWatchdogAndResume();
+      this.clearWatchdogAndResume(toolCallId);
       return;
     }
 
@@ -582,7 +586,7 @@ export class CallSession<TCtx = CallContext> {
       this.voiceAI.sendToolResult(toolCallId, { ok: false, error: 'upstream_error' }, true);
     } finally {
       if (this.callEndingToolCallId === toolCallId) this.callEndingToolCallId = null;
-      this.clearWatchdogAndResume();
+      this.clearWatchdogAndResume(toolCallId);
     }
   }
 
@@ -612,18 +616,32 @@ export class CallSession<TCtx = CallContext> {
     return this.waitForTurnEnd(SPEAK_VERBATIM_TIMEOUT_MS);
   }
 
-  /** (Re-)arms the session-level tool-pending watchdog: `budgetMs` from now, the call fails as stuck. */
+  /**
+   * (Re-)arms the session-level tool-pending watchdog: `budgetMs` from now,
+   * the call fails as stuck. While a call-ending tool runs, the watchdog is
+   * its budget and no other tool call may replace it (#7).
+   */
   private armToolPendingWatchdog(toolCallId: string, name: string, budgetMs: number): void {
+    if (this.callEndingToolCallId !== null && this.callEndingToolCallId !== toolCallId) return;
     if (this.toolPendingWatchdog) clearTimeout(this.toolPendingWatchdog);
+    this.toolPendingWatchdogOwner = toolCallId;
     this.toolPendingWatchdog = setTimeout(() => {
       logger.error({ callId: this.opts.callId, toolCallId, name }, 'Tool call watchdog fired — forcing call end');
       void this.fail('tool_pending_watchdog', new Error(`Tool ${name} did not resolve in time`));
     }, budgetMs);
   }
 
-  private clearWatchdogAndResume(): void {
+  /**
+   * A finishing tool call clears the watchdog and resumes 'active' only if the
+   * watchdog is its own and no call-ending handler is still running — a tool
+   * that started earlier and finishes mid-transfer must not disarm the
+   * transfer's watchdog or mark the call 'active' (#7).
+   */
+  private clearWatchdogAndResume(toolCallId: string): void {
+    if (this.toolPendingWatchdogOwner !== toolCallId || this.callEndingToolCallId !== null) return;
     if (this.toolPendingWatchdog) clearTimeout(this.toolPendingWatchdog);
     this.toolPendingWatchdog = null;
+    this.toolPendingWatchdogOwner = null;
     if (this.state === 'tool-pending') this.setState('active');
   }
 

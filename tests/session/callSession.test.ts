@@ -1342,7 +1342,16 @@ describe('CallSession: while a call-ending tool is running, nothing else can end
       await telephony.provider.hangUp(callAttempt.id);
       return { ok: true };
     });
-    const lookupHandler = vi.fn(async () => ({ ok: true }));
+    let finishLookup!: () => void;
+    const lookupHandler = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = () => {
+            order.push('lookup finished');
+            resolve({ ok: true });
+          };
+        }),
+    );
     options.tools = [
       { name: 'transfer_to_owner', description: 'test-only', schema: z.object({}), handler: transferHandler, endsCall: true, handlerBudgetMs: 60_000 },
       { name: 'end_call', description: 'test-only', schema: z.object({}), handler: endCallHandler, endsCall: true },
@@ -1351,7 +1360,7 @@ describe('CallSession: while a call-ending tool is running, nothing else can end
     vi.mocked(options.onStatusChange).mockImplementation(async (patch) => {
       order.push(`status:${patch.kind}`);
     });
-    return { telephony, options, order, transferHandler, endCallHandler, lookupHandler, finishTransfer: (r: unknown) => finishTransfer(r) };
+    return { telephony, options, order, transferHandler, endCallHandler, lookupHandler, finishTransfer: (r: unknown) => finishTransfer(r), finishLookup: () => finishLookup() };
   }
 
   const toolCall = (id: string, name: string) =>
@@ -1385,19 +1394,60 @@ describe('CallSession: while a call-ending tool is running, nothing else can end
     }
   });
 
-  it('refuses a non-ending tool call too, while the call-ending tool runs', async () => {
+  it('a non-ending tool arriving while a call-ending tool is in flight still runs, and end() still waits for it', async () => {
+    // One OpenAI response can carry end_call AND confirm_appointment (parallel
+    // tool calls). Refusing the booking during end_call's turn_end wait would
+    // hang up on a booking the callee agreed to, with nothing in Postgres.
     vi.useFakeTimers();
     try {
-      const { options, transferHandler, lookupHandler } = sessionWithTransferAndEndCall();
+      const { telephony, options, order, endCallHandler, lookupHandler, finishLookup } = sessionWithTransferAndEndCall();
       await new CallSession(options).start();
-      toolCall('call-1', 'transfer_to_owner');
-      await vi.advanceTimersByTimeAsync(4_000); // TURN_END_WAIT_MS with no turn_end
-      expect(transferHandler).toHaveBeenCalled();
-
+      toolCall('call-1', 'end_call');
       toolCall('call-2', 'lookup');
       await vi.advanceTimersByTimeAsync(0);
-      expect(lookupHandler).not.toHaveBeenCalled();
-      expect(fakeVoiceAI.sendToolResult).toHaveBeenCalledWith('call-2', expect.objectContaining({ ok: false, error: 'call_ending' }), true);
+      expect(lookupHandler).toHaveBeenCalledTimes(1);
+      expect(fakeVoiceAI.sendToolResult).not.toHaveBeenCalledWith('call-2', expect.anything(), expect.anything());
+
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(endCallHandler).toHaveBeenCalledTimes(1);
+      telephony.emit({ callId: callAttempt.id, type: 'ended', reason: 'stop' });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(order).not.toContain('status:ended');
+
+      finishLookup();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fakeVoiceAI.sendToolResult).toHaveBeenCalledWith('call-2', { ok: true }, false);
+      expect(order).toEqual(['status:started', 'lookup finished', 'status:ended']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a tool that started before the call-ending tool and finishes during it neither clears the ending tool's watchdog nor resumes 'active'", async () => {
+    vi.useFakeTimers();
+    try {
+      const { options, order, transferHandler, lookupHandler, finishLookup } = sessionWithTransferAndEndCall();
+      const session = new CallSession(options);
+      await session.start();
+      toolCall('call-1', 'lookup');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lookupHandler).toHaveBeenCalled();
+      toolCall('call-2', 'transfer_to_owner');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(transferHandler).toHaveBeenCalled();
+
+      finishLookup();
+      await vi.advanceTimersByTimeAsync(0);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((session as any).state).toBe('tool-pending');
+
+      // The transfer's 60s watchdog is still armed and still fires on schedule.
+      await vi.advanceTimersByTimeAsync(55_000);
+      expect(order).not.toContain('status:failed');
+      await vi.advanceTimersByTimeAsync(5_000 + 61_000 + 1_000);
+      expect(options.onFailure).toHaveBeenCalledWith('tool_pending_watchdog');
     } finally {
       vi.useRealTimers();
     }
