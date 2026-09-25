@@ -166,7 +166,18 @@ before the redirect landed. Instead the tool declares `VoiceTool.handlerBudgetMs
 stuck call, not a normal duration). `CallSession` re-arms its tool-pending watchdog with that budget
 after the `endsCall` turn_end wait, and `toolBudgetMs` gives `end()`/`fail()` the same allowance, so
 a stream `stop` that arrives before Twilio's REST response still waits for the handler to record
-`transferred`. Every other tool's budget is unchanged.
+`transferred`. Every other tool's budget is unchanged. One side effect for every tool: the watchdog's
+first arm now clears any timer already running. Before, a second concurrent tool call left the
+first call's timer running unreferenced; now the newer call's watchdog replaces it. Benign: only
+concurrent tool calls see it, and either one finishing already cleared the watchdog field.
+
+**Nothing else runs while a call-ending tool does.** While any `endsCall` tool's handler is in flight
+(`CallSession.callEndingToolCallId`), `CallSession` refuses every new tool call with
+`{ ok: false, error: 'call_ending' }` without running it or touching the running tool's watchdog, and
+the silence watchdog neither arms nor nudges. Otherwise a nudged `end_call` accepted during a slow
+redirect could hang up the call mid-transfer. When the handler returns — including a
+`transfer_failed` with the call still Banjo's — both go back to normal, so the model can then escalate
+or end the call as the prompt says.
 
 **Notification.** The outbound hook only records the outcome; `end()`'s `notifyIfTerminal` sends the
 one text when the stream stops, as for every other outcome. If recording it throws, the hook retries
