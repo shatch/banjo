@@ -85,3 +85,23 @@ describe('listStartableTasks (#3)', () => {
     expect(ids).toEqual([asap.id, due.id, resuming.id].sort());
   });
 });
+
+describe('recordTransferResult (#7)', () => {
+  it("records the dial result on the call attempt, and ignores ids that aren't call attempts", async () => {
+    const [contact] = await db.insert(contacts).values({ displayName: 'Salon', phoneNumber: '+15551230004' }).returning();
+    const task = await service.createTask({ contactId: contact.id, channel: 'phone', goalDescription: 'Call', constraints: {} });
+    const attempt = await service.createCallAttempt(task.id);
+
+    expect(await service.recordTransferResult(attempt.id, 'no_answer')).toBe(true);
+    expect((await service.latestCallAttemptFor(task.id))?.transferResult).toBe('no_answer');
+
+    // An inbound call's id is a Twilio CallSid, not a UUID: no query, no throw.
+    expect(await service.recordTransferResult('CA0123456789abcdef', 'answered')).toBe(false);
+    // A UUID that matches nothing.
+    expect(await service.recordTransferResult('00000000-0000-0000-0000-000000000000', 'answered')).toBe(false);
+  });
+
+  it("'transferred' is a terminal status", async () => {
+    expect(service.isTerminalStatus('transferred')).toBe(true);
+  });
+});
