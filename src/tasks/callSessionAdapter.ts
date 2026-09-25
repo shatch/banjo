@@ -7,7 +7,7 @@ import { config } from '../config/index.js';
 import { logger } from '../lib/logger.js';
 import { buildOutcomeSummary, withDisclosureNote } from '../notifications/channel.js';
 import type { DisclosureResult } from '../session/disclosure.js';
-import { createNotificationChannel } from '../notifications/twilioSms.js';
+import { createNotificationChannel } from '../notifications/owner.js';
 import { pressDigitsTool } from '../telephony/dtmf.js';
 import type { TelephonyProvider } from '../telephony/providers/types.js';
 import { callTools, endConversationCallTool } from '../voice/tools/callTools.js';

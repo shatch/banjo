@@ -5,8 +5,8 @@ import type { TelephonyProvider } from '../../src/telephony/providers/types.js';
 // DB-backed (banjo_test — see vitest.config.ts): the race below is about what
 // Postgres ends up saying, so it runs the real transitionTask guard, the real
 // end-of-call adapter, and the real confirm_appointment handler together.
-const { sendOwnerSms } = vi.hoisted(() => ({ sendOwnerSms: vi.fn(async () => {}) }));
-vi.mock('../../src/notifications/twilioSms.js', () => ({ sendOwnerSms }));
+const { sendOwnerMessage } = vi.hoisted(() => ({ sendOwnerMessage: vi.fn(async () => {}) }));
+vi.mock('../../src/notifications/owner.js', () => ({ sendOwnerMessage }));
 
 let db: any;
 let contacts: any;
@@ -101,7 +101,10 @@ describe('booking vs. hang-up race', () => {
     finishWrite();
     await confirming;
     expect((await service.getTask(task.id))?.status).toBe('failed');
-    expect(sendOwnerSms).toHaveBeenCalledWith(expect.stringMatching(/^Correction: Banjo put "Haircut with Clauda" on your calendar for Tuesday, September 15 at 2:00 PM/));
+    expect(sendOwnerMessage).toHaveBeenCalledWith(
+      expect.stringMatching(/^Correction: Banjo put "Haircut with Clauda" on your calendar for Tuesday, September 15 at 2:00 PM/),
+      { urgent: true },
+    );
   });
 
   it("refuses to book on a task that's already over, without writing a calendar event (#3)", async () => {

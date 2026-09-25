@@ -3,7 +3,7 @@ import { SlotUnavailableError } from '../calendar/types.js';
 import { config } from '../config/index.js';
 import { childLogger } from '../lib/logger.js';
 import { formatInZone } from '../lib/timezone.js';
-import { sendOwnerSms } from '../notifications/twilioSms.js';
+import { sendOwnerMessage } from '../notifications/owner.js';
 import { combineDateTimeToIso, hangUpAfterSpeaking, runToolSafely } from '../voice/tools/callTools.js';
 import { defineVoiceTool, toToolDefinition, type VoiceTool } from '../voice/tools/defineVoiceTool.js';
 import type { ToolDefinition } from '../voice/types.js';
@@ -257,9 +257,9 @@ export const bookAppointmentTool: VoiceTool<
       // call was meant to cover — extra dead air on a live call risks the
       // caller hanging up before ever hearing the confirmation they're
       // actually waiting for.
-      sendOwnerSms(
+      sendOwnerMessage(
         `New inbound booking: ${booking.confirmedStart.toLocaleString('en-US', { timeZone: config.CALENDAR_TIMEZONE })} (${booking.durationMinutes} min) — ${booking.purpose}. Caller: ${ctx.callerPhoneNumber}.`,
-      ).catch((err) => log.error({ err }, 'book_appointment: sendOwnerSms failed'));
+      ).catch((err) => log.error({ err }, 'book_appointment: sendOwnerMessage failed'));
 
       return { ok: true, confirmedStart: formatStartForModel(booking.confirmedStart) };
     });
@@ -352,9 +352,9 @@ export const rescheduleBookingTool: VoiceTool<{ date: string; time: string }, In
         });
 
         // Fire-and-forget — see book_appointment's identical comment above.
-        sendOwnerSms(
+        sendOwnerMessage(
           `Inbound reschedule: ${superseded.confirmedStart.toLocaleString('en-US', { timeZone: config.CALENDAR_TIMEZONE })} (${superseded.durationMinutes} min) — ${superseded.purpose}. Caller: ${ctx.callerPhoneNumber}.`,
-        ).catch((err) => log.error({ err }, 'reschedule_booking: sendOwnerSms failed'));
+        ).catch((err) => log.error({ err }, 'reschedule_booking: sendOwnerMessage failed'));
 
         return { ok: true, confirmedStart: formatStartForModel(superseded.confirmedStart) };
       } catch (err) {
@@ -393,7 +393,7 @@ export const flagForOwnerAndEndCallTool: VoiceTool<{ reason: string }, InboundCa
   endsCall: true,
   handler: async (input, ctx) => {
     return runToolSafely('flag_for_owner_and_end_call', async () => {
-      await sendOwnerSms(`Inbound call from ${ctx.callerPhoneNumber} needs your attention: ${input.reason}`);
+      await sendOwnerMessage(`Inbound call from ${ctx.callerPhoneNumber} needs your attention: ${input.reason}`, { urgent: true });
       await hangUpAfterSpeaking(ctx);
       return { ok: true };
     });

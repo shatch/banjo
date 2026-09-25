@@ -14,7 +14,8 @@ function getSmsClient(): ReturnType<typeof twilioLib> {
  * Texts the assistant's owner a plain message, outside the Task/TaskOutcome-shaped
  * NotificationChannel interface below — used by src/inbound/tools.ts, which
  * has no Task to report an outcome for (there's no per-call outcome model
- * on the inbound side, just individual booking/reschedule events). A no-op
+ * on the inbound side, just individual booking/reschedule events). Callers
+ * go through sendOwnerMessage (./owner.ts), which picks the channel. A no-op
  * (not an error) when NOTIFICATION_CHANNEL isn't 'twilio_sms', matching
  * NoopNotificationChannel's behavior for the Task-shaped path below.
  */
@@ -82,12 +83,4 @@ export class NoopNotificationChannel implements NotificationChannel {
   async notify(): Promise<void> {
     // NOTIFICATION_CHANNEL=none — used in local dev / tests.
   }
-}
-
-let instance: NotificationChannel | null = null;
-
-export function createNotificationChannel(): NotificationChannel {
-  if (instance) return instance;
-  instance = config.NOTIFICATION_CHANNEL === 'twilio_sms' ? new TwilioSmsNotificationChannel() : new NoopNotificationChannel();
-  return instance;
 }

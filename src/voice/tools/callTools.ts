@@ -4,7 +4,7 @@ import { config } from '../../config/index.js';
 import { childLogger } from '../../lib/logger.js';
 import { formatInZone, formatSpokenInZone, zonedTimeToUtcIso } from '../../lib/timezone.js';
 import { TimeoutError, withTimeout } from '../../lib/withTimeout.js';
-import { sendOwnerSms } from '../../notifications/twilioSms.js';
+import { sendOwnerMessage } from '../../notifications/owner.js';
 import type { CallContext } from '../../session/types.js';
 import { isTerminalStatus, transitionTask } from '../../tasks/service.js';
 import type { TelephonyProvider } from '../../telephony/providers/types.js';
@@ -284,8 +284,9 @@ export const confirmAppointmentTool: VoiceTool<{
           'calendar event written, but the task could not be marked confirmed',
         );
         const when = formatSpokenInZone(new Date(result.confirmedStart).toISOString(), config.CALENDAR_TIMEZONE);
-        void sendOwnerSms(
+        void sendOwnerMessage(
           `Correction: Banjo put "${title}" on your calendar for ${when.day} at ${when.time}, after that call had already been reported as ${recorded.status}. The booking may be real; check with them.`,
+          { urgent: true },
         );
       }
       // Local and spoken, never the calendar's own string (UTC, or an offset

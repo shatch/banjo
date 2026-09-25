@@ -23,8 +23,8 @@ vi.mock('../../src/inbound/service.js', () => ({
   E164_PATTERN,
 }));
 
-const sendOwnerSms = vi.fn(async () => {});
-vi.mock('../../src/notifications/twilioSms.js', () => ({ sendOwnerSms }));
+const sendOwnerMessage = vi.fn(async () => {});
+vi.mock('../../src/notifications/owner.js', () => ({ sendOwnerMessage }));
 
 const {
   bookAppointmentTool,
@@ -162,19 +162,19 @@ describe('rescheduleBookingTool.handler', () => {
       expect.objectContaining({ callerPhoneNumber: CALLER, calendarEventId: 'evt-new' }),
     );
     expect(result).toMatchObject({ ok: true });
-    expect(sendOwnerSms).toHaveBeenCalledTimes(1);
+    expect(sendOwnerMessage).toHaveBeenCalledTimes(1);
   });
 
   it('does not make the caller wait on the Steve-notification SMS before hearing the reschedule confirmation', async () => {
     findActiveBookingForCaller.mockResolvedValue(EXISTING_BOOKING);
     supersedeBooking.mockResolvedValue({ ...EXISTING_BOOKING, id: 'booking-2', confirmedStart: new Date('2026-08-11T18:00:00.000Z') });
     const calendar = fakeCalendar();
-    sendOwnerSms.mockImplementation(() => new Promise(() => {})); // never resolves
+    sendOwnerMessage.mockImplementation(() => new Promise(() => {})); // never resolves
 
     const result = await rescheduleBookingTool.handler({ date: '2026-08-11', time: '14:00' }, makeContext(calendar));
 
     expect(result).toMatchObject({ ok: true });
-    expect(sendOwnerSms).toHaveBeenCalledTimes(1);
+    expect(sendOwnerMessage).toHaveBeenCalledTimes(1);
   });
 
   it("includes the caller's name in the calendar event description", async () => {
@@ -258,11 +258,11 @@ describe('bookAppointmentTool.handler', () => {
 
     expect(result).toMatchObject({ ok: true });
     expect(createBooking).toHaveBeenCalledTimes(1);
-    expect(sendOwnerSms).toHaveBeenCalledTimes(1);
+    expect(sendOwnerMessage).toHaveBeenCalledTimes(1);
   });
 
   it('does not make the caller wait on the Steve-notification SMS before hearing the booking confirmation', async () => {
-    // Regression test for a real call: sendOwnerSms was awaited before the
+    // Regression test for a real call: sendOwnerMessage was awaited before the
     // tool returned, so the confirmation the caller actually needs to hear
     // was gated behind an SMS API round-trip on top of the calendar/DB
     // work — extra silent dead air beyond what the one stalling phrase
@@ -274,7 +274,7 @@ describe('bookAppointmentTool.handler', () => {
     findActiveBookingForCaller.mockResolvedValue(undefined);
     createBooking.mockResolvedValue({ ...EXISTING_BOOKING, id: 'booking-3', calendarEventId: 'evt-new' });
     const calendar = fakeCalendar();
-    sendOwnerSms.mockImplementation(() => new Promise(() => {})); // never resolves
+    sendOwnerMessage.mockImplementation(() => new Promise(() => {})); // never resolves
 
     const result = await bookAppointmentTool.handler(
       { date: '2026-08-11', time: '14:00', purpose: 'Consultation', callerName: 'Jamie Rivera' },
@@ -282,7 +282,7 @@ describe('bookAppointmentTool.handler', () => {
     );
 
     expect(result).toMatchObject({ ok: true });
-    expect(sendOwnerSms).toHaveBeenCalledTimes(1);
+    expect(sendOwnerMessage).toHaveBeenCalledTimes(1);
   });
 
   it("includes the caller's name in the calendar event description", async () => {
@@ -355,7 +355,7 @@ describe('bookAppointmentTool.handler', () => {
       existingBooking: { durationMinutes: EXISTING_BOOKING.durationMinutes },
     });
     expect(findActiveBookingForCaller).toHaveBeenCalledTimes(2);
-    expect(sendOwnerSms).not.toHaveBeenCalled();
+    expect(sendOwnerMessage).not.toHaveBeenCalled();
   });
 
   it('returns slot_unavailable rather than throwing if the calendar refuses a double-booked slot', async () => {
@@ -386,7 +386,7 @@ describe('bookAppointmentTool.handler', () => {
     expect(findActiveBookingForCaller).not.toHaveBeenCalled();
     expect(calendar.createEventIdempotent).not.toHaveBeenCalled();
     expect(createBooking).not.toHaveBeenCalled();
-    expect(sendOwnerSms).not.toHaveBeenCalled();
+    expect(sendOwnerMessage).not.toHaveBeenCalled();
   });
 
   it('gives two DIFFERENT anonymous callers the same clean rejection, instead of the pre-fix bug where the second one got a nonsensical already_has_active_booking with no existingBooking data', async () => {

@@ -24,7 +24,7 @@ const ALL_CONFIG_KEYS = [
   'GEMINI_API_KEY', 'GEMINI_LIVE_MODEL', 'ELEVENLABS_API_KEY', 'ELEVENLABS_AGENT_ID',
   'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER', 'TWILIO_WEBHOOK_VALIDATION_ENABLED',
   'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'GOOGLE_OAUTH_REFRESH_TOKEN', 'GOOGLE_CALENDAR_ID',
-  'NOTIFICATION_CHANNEL', 'NOTIFY_TO_PHONE_NUMBER', 'NOTIFY_FROM_PHONE_NUMBER',
+  'NOTIFICATION_CHANNEL', 'NOTIFY_TO_PHONE_NUMBER', 'NOTIFY_FROM_PHONE_NUMBER', 'PUSHOVER_APP_TOKEN', 'PUSHOVER_USER_KEY', 'PUSHOVER_DEVICE',
   'MCP_API_KEY', 'TOOL_TIMEOUT_MS', 'LOG_TRANSCRIPTS',
   'INBOUND_BOOKING_ENABLED', 'BUSINESS_HOURS_DAYS', 'BUSINESS_HOURS_START', 'BUSINESS_HOURS_END',
   'INBOUND_DEFAULT_DURATION_MINUTES', 'INBOUND_MAX_LOOKAHEAD_DAYS', 'ASSISTANT_PRINCIPAL_NAME', 'DISCLOSURE_LINE', 'RECORD_CALLS', 'RECORDING_RETENTION_DAYS',
@@ -90,6 +90,42 @@ describe('config: env schema', () => {
   it('fails fast when Twilio credentials are missing — Twilio is the only telephony provider', async () => {
     setEnv({ TWILIO_ACCOUNT_SID: '' });
     await expect(import('../src/config/index.js')).rejects.toThrow();
+  });
+
+  it('treats empty optional settings as unset, as .env.example ships them', async () => {
+    setEnv({
+      NOTIFICATION_CHANNEL: 'pushover',
+      PUSHOVER_APP_TOKEN: 'app-token',
+      PUSHOVER_USER_KEY: 'user-key',
+      PUSHOVER_DEVICE: '',
+      NOTIFY_TO_PHONE_NUMBER: '',
+      NOTIFY_FROM_PHONE_NUMBER: '',
+    });
+    const { config } = await import('../src/config/index.js');
+    expect(config.NOTIFY_TO_PHONE_NUMBER).toBeUndefined();
+    expect(config.NOTIFY_FROM_PHONE_NUMBER).toBeUndefined();
+    expect(config.PUSHOVER_DEVICE).toBeUndefined();
+  });
+
+  it('still rejects a non-empty phone number that is not E.164', async () => {
+    setEnv({ NOTIFY_TO_PHONE_NUMBER: '5551234567' });
+    await expect(import('../src/config/index.js')).rejects.toThrow(/E\.164/);
+  });
+
+  it('an empty value does not satisfy a setting the chosen channel requires', async () => {
+    setEnv({ NOTIFICATION_CHANNEL: 'pushover', PUSHOVER_APP_TOKEN: 'app-token', PUSHOVER_USER_KEY: '' });
+    await expect(import('../src/config/index.js')).rejects.toThrow(/PUSHOVER_USER_KEY/);
+  });
+
+  it('fails fast when NOTIFICATION_CHANNEL=pushover is missing its user key', async () => {
+    setEnv({ NOTIFICATION_CHANNEL: 'pushover', PUSHOVER_APP_TOKEN: 'app-token' });
+    await expect(import('../src/config/index.js')).rejects.toThrow(/PUSHOVER_USER_KEY/);
+  });
+
+  it('accepts NOTIFICATION_CHANNEL=pushover with a token and user key, and no SMS numbers', async () => {
+    setEnv({ NOTIFICATION_CHANNEL: 'pushover', PUSHOVER_APP_TOKEN: 'app-token', PUSHOVER_USER_KEY: 'user-key' });
+    const { config } = await import('../src/config/index.js');
+    expect(config.NOTIFICATION_CHANNEL).toBe('pushover');
   });
 
   it('fails fast when NOTIFICATION_CHANNEL=twilio_sms without notify phone numbers', async () => {

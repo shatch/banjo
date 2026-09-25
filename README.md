@@ -143,7 +143,8 @@ Banjo needs four things before it can place a real call — get these first:
    number capable of voice calls, and note your Account SID, Auth Token, and the number itself. For outcome
    **texts** to a US number, the sending number must also be registered for US A2P 10DLC. Without it, every
    text is silently blocked by the carrier (Twilio error 30034). See `docs/RUNBOOKS.md`, "SMS notifications
-   aren't arriving".
+   aren't arriving". Or skip SMS entirely and get outcomes as [Pushover](https://pushover.net) push
+   notifications (`NOTIFICATION_CHANNEL=pushover`), which need no carrier registration.
 2. **A voice AI provider.** OpenAI Realtime is the most battle-tested option here and the recommended
    default — Gemini Live and ElevenLabs Conversational AI are supported but flagged
    `NEEDS VERIFICATION` in a few places (see `docs/ARCHITECTURE.md`'s Open Risks section) since they haven't
@@ -287,7 +288,7 @@ src/
   inbound/       inbound call handling: booking flow + caller-ID resolution for greeting personalization
   mcp/           remote MCP server for tool-calling clients (e.g. Claude Code)
   session/       per-call state machine wiring telephony <-> voice AI <-> tools
-  notifications/ outcome notifications (SMS by default)
+  notifications/ outcome notifications (SMS by default, or Pushover)
 skills/
   schedule-appointment/  companion Claude Code skill — decides online vs. phone, drives online
                           booking via browser automation, calls into src/mcp/ for the phone path

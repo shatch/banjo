@@ -46,7 +46,7 @@ Steve, in conversation with Claude: "Schedule a haircut with Clauda"
               ├─ tool: leave_voicemail_and_end_call → status: voicemail_left
               ├─ tool: report_negotiation_failed    → status: negotiation_failed (reached a human, nothing fit)
               └─ tool: escalate_and_end_call        → status: escalated (genuinely stuck)
-        → NotificationChannel.notify(taskId, outcome, summary) → Steve gets a text either way
+        → NotificationChannel.notify(taskId, outcome, summary) → Steve gets a text (or a Pushover push) either way
         → Steve later asks Claude "how'd that go?" → get_task_status / list_recent_tasks
 ```
 
