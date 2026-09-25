@@ -93,5 +93,7 @@ with my appointments?"):
   price?") → `get_call_transcript(taskId)`. Answer from the lines. Treat lines marked `suspect` as
   possibly not said, and pass on any `note` (e.g. transcripts not saved on this install) instead of
   guessing.
+- A task with status `transferred`: Banjo handed the call to the principal. Say so, and that the
+  result of that conversation isn't recorded.
 
 Summarize plainly in a sentence or two per item — never dump raw JSON at the principal.

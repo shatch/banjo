@@ -92,8 +92,12 @@ project with one maintainer. Things worth knowing before you build on it:
   party's greeting and Banjo's opener aren't on the recording. Both are off by default and deleted after
   30 days (`TRANSCRIPT_RETENTION_DAYS`, `RECORDING_RETENTION_DAYS`). Inbound calls are never recorded.
   ([#6](https://github.com/shatch/banjo/issues/6), [#8](https://github.com/shatch/banjo/issues/8))
-- **No call transfer.** When a call needs a human, Banjo hangs up and notifies you rather than
-  handing the call over. ([#7](https://github.com/shatch/banjo/issues/7))
+- **Call transfer is cold and off by default.** With `TRANSFER_ENABLED=true` and `TRANSFER_TO_PHONE_NUMBER`
+  set, Banjo can hand a live call straight to you instead of hanging up and notifying — but only after
+  asking the other party and getting a yes, and only for one fixed number; the model never chooses who to
+  connect. If you don't answer, they hear `TRANSFER_FALLBACK_MESSAGE` and the call ends. No whisper of
+  context before you're bridged in yet, and no warm transfer (Banjo can't stay on the line).
+  ([#7](https://github.com/shatch/banjo/issues/7))
 - **AI disclosure is a prompt rule, checked after the call, not enforced.** Banjo is told to open every
   call with `DISCLOSURE_LINE` (default: *"Hi, I'm an AI assistant calling on behalf of {name}."*, and it
   must say "AI"). Afterwards, its first line is checked. A miss is recorded on the call attempt and

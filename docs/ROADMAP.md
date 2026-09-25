@@ -68,6 +68,15 @@ made, not deferred. See item 3 — if only one of the two ships, ship them toget
 
 ## 2. Call transfer, behind a flag
 
+> **Cold transfer shipped** on branch `feat/call-transfer` (#7): `TRANSFER_ENABLED`,
+> `TRANSFER_TO_PHONE_NUMBER`, a REST-redirect `<Dial>` to one fixed number, only after the other
+> party agrees, gated on both the tool and the prompt rule. See `docs/ARCHITECTURE.md`'s "Call
+> transfer (#7)" section for how it works. Still open: **warm transfer** (needs a second concurrent
+> call leg — `isAnyCallActive()` is still the entire concurrency policy) and, as the next step
+> before that, **a whisper to the principal before bridging** (a short "Banjo transfer: `<contact>`,
+> `<reason>`" played to you before the call connects — deferred because SMS is blocked on 10DLC
+> registration today, so v1 transfers arrive with no context at all).
+
 **Why:** the current escape hatch when a call needs a human is `escalate_and_end_call` /
 `flag_for_owner_and_end_call` — hang up and notify. Handing the live call to a person instead is the
 difference between "it gave up" and "it got you there". Vocode has this on both Twilio and Vonage;

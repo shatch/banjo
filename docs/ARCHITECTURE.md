@@ -115,6 +115,45 @@ export interface TelephonyProvider {
 - **`dtmf.ts`** — the `press_digits` tool routes to `TelephonyProvider.sendDigits()`, not a domain/backend service. This is a deliberate architectural distinction from the calendar/task-backed tools in `voice/tools/callTools.ts`: DTMF is phone signaling, not AI speech, even though it's registered with the Voice AI provider exactly like any other tool.
 - **`audio/codec.ts`** — `muLawToPcm16`, `pcm16ToMuLaw`, `resamplePcm16`. `src/session/audioPipeline.ts` resolves which conversion (if any) is needed once per call, based on `(telephony's native format, negotiated voice-AI format)`. When both sides support mu-law directly (OpenAI/ElevenLabs paired with Twilio), it's pure passthrough — a real latency/CPU win. A naive linear-interpolation resampler is used for v1; a proper resampling library is a flagged future upgrade, not a blocker.
 
+### Call transfer (#7)
+
+`transfer.ts` (next to `dtmf.ts`, same reasoning: this is phone signaling, not AI speech) defines
+`transfer_to_owner` — a cold hand-off of the live call to `TRANSFER_TO_PHONE_NUMBER`, offered to the
+model only when `TRANSFER_ENABLED` is on, gating both the tool and the prompt rule that tells the
+model when to use it (`transferSection` in `systemPrompt.ts`). Each direction supplies its own
+`onTransferred` hook — outbound (`callSessionAdapter.ts`) moves the task to `transferred`; inbound
+(`inbound/tools.ts`) texts the owner — so the telephony layer stays ignorant of tasks.
+
+`<Connect><Stream>` is terminal TwiML: the Media Streams WebSocket *is* the call, so there's no
+TwiML continuation inside the call to `<Dial>` into. A transfer has to be a REST redirect of the
+live call instead — `client.calls(sid).update({ twiml })` — the same call shape `hangUp()` already
+uses. `TwilioProvider.transferCall()` builds `<Dial timeout="20" answerOnBridge="true" action=".../transfer-callback?callId=…"><Number>{to}</Number></Dial>`. Nothing follows the `<Dial>` in that
+TwiML: with an `action` URL, Twilio never reaches verbs after it and instead runs whatever TwiML the
+callback returns, so the fallback line has to live there rather than after the `<Dial>`.
+
+**The callback** (`POST /telephony/twilio/transfer-callback`, `src/server.ts`) is where the dial's
+outcome actually arrives — after the `<Dial>` ends, via `DialCallStatus`. It maps that to a
+`transfer_result` (`answered | no_answer | busy | failed`), records it on `call_attempts` for
+outbound calls (inbound calls have no `call_attempts` row, so it just logs), and returns
+`<Hangup/>` when answered or the XML-escaped fallback `<Say>{TRANSFER_FALLBACK_MESSAGE}</Say><Hangup/>`
+otherwise. This is also why there's no `transfer_completed`/`transfer_failed` arm on
+`TelephonyEvent`: the dial result is known only once the bridged call ends, by which point the
+`CallSession` that placed the transfer is already gone and has no listener left to notify. A failed
+*redirect* (the REST call itself, not the eventual dial outcome) is a different, immediate failure —
+`transferCall()` throws, and the tool returns `transfer_failed` to the model directly.
+
+`transferCall()` stops any running recording before redirecting: the callee agreed to a recorded
+call with Banjo, not to recording the principal's bridged conversation, and stopping it is also the
+consent boundary — recording never continues into a call leg the disclosure rule never covered.
+
+The call is forgotten (`forgetCall`) only *after* the REST redirect succeeds, unlike `hangUp()`,
+which forgets in a `finally`. Two things ride on that: `isAnyCallActive()` has to drop back to false
+so the inbound line doesn't stay wedged, and — the sharper reason — `CallSession`'s teardown
+`hangUp()` becomes a no-op via `recentlyEnded` once the call is forgotten. Without that, a teardown
+that runs before Twilio's stream `stop` event arrives would hang up the call Banjo just bridged to
+the principal. If the redirect fails, the call is *not* forgotten: it's still Banjo's to keep
+talking on, and the stream's `stop`/close handlers forget it whenever it genuinely ends either way.
+
 ---
 
 ## Data model (`src/contacts/`, `src/tasks/`)
