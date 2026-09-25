@@ -25,6 +25,7 @@ interface TwilioHttpHooks {
   buildTwiml(callId: string): string;
   handleMediaStreamConnection(ws: WebSocket): void;
   handleAmdCallback(callId: string, answeredBy: string): void;
+  handleStatusCallback(callId: string, callStatus: string, callSid?: string): void;
   buildInboundTwiml(): string;
   buildDeclineTwiml(): string;
   isAnyCallActive(): boolean;
@@ -101,6 +102,26 @@ app.post('/telephony/twilio/amd-callback', async (c) => {
   const answeredBy = typeof body.AnsweredBy === 'string' ? body.AnsweredBy : 'unknown';
   logger.info({ callId, answeredBy }, 'AMD callback received');
   telephony.handleAmdCallback(callId, answeredBy);
+  return c.body(null, 204);
+});
+
+/**
+ * An outbound call's final status (statusCallback, set in
+ * TwilioProvider.originateCall). How Banjo learns that a call went
+ * unanswered, hit a busy signal, or failed to connect — none of those ever
+ * open a Media Stream, so nothing else would end them.
+ */
+app.post('/telephony/twilio/status', async (c) => {
+  const body = await c.req.parseBody();
+  if (!isValidTwilioSignature(c, body as Record<string, string>)) {
+    logger.warn({ path: c.req.path }, 'rejected Twilio webhook with invalid or missing signature');
+    return c.body(null, 403);
+  }
+  const callId = c.req.query('callId') ?? '';
+  const callStatus = typeof body.CallStatus === 'string' ? body.CallStatus : '';
+  const callSid = typeof body.CallSid === 'string' ? body.CallSid : undefined;
+  logger.info({ callId, callStatus }, 'call status callback received');
+  telephony.handleStatusCallback(callId, callStatus, callSid);
   return c.body(null, 204);
 });
 

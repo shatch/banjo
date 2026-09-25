@@ -441,3 +441,99 @@ describe('TwilioProvider recording (#8)', () => {
     await expect(provider.deleteRecording('RE-err')).rejects.toThrow('boom');
   });
 });
+
+describe('TwilioProvider call status callback (unanswered calls)', () => {
+  // An unanswered or busy call never opens a Media Stream, and the stream
+  // was the only way Banjo learned a call had ended — so the task stayed in
+  // 'calling', held in the live-call registry, until the process restarted.
+
+  async function originate(provider: TwilioProvider, callId = 'call-1', sid = 'CA-out-1') {
+    const create = vi.fn(async () => ({ sid }));
+    Object.defineProperty((provider as any).client, 'calls', { value: Object.assign(vi.fn(), { create }), configurable: true });
+    await provider.originateCall({ to: '+15551230000', callId });
+    return create;
+  }
+
+  it("asks Twilio to report the call's final status to Banjo", async () => {
+    const provider = new TwilioProvider();
+    const create = await originate(provider, 'call-9');
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCallback: expect.stringMatching(/^https:\/\/[^/]+\/telephony\/twilio\/status\?callId=call-9$/),
+        statusCallbackEvent: ['completed'],
+        statusCallbackMethod: 'POST',
+      }),
+    );
+  });
+
+  for (const [callStatus, reason] of [
+    ['no-answer', 'no one answered'],
+    ['busy', 'the line was busy'],
+    ['failed', 'the call could not be connected'],
+    ['canceled', 'the call was canceled before it connected'],
+  ] as const) {
+    it(`ends a call whose final status is ${callStatus}, with a reason the owner can read`, async () => {
+      const provider = new TwilioProvider();
+      await originate(provider);
+      const events: TelephonyEvent[] = [];
+      provider.on('event', (e) => events.push(e));
+
+      provider.handleStatusCallback('call-1', callStatus, 'CA-out-1');
+
+      expect(events).toEqual([{ callId: 'call-1', type: 'ended', reason }]);
+    });
+  }
+
+  it('forgets the call, so the session teardown hang-up is a quiet no-op rather than a REST call', async () => {
+    const provider = new TwilioProvider();
+    await originate(provider);
+    provider.handleStatusCallback('call-1', 'no-answer', 'CA-out-1');
+    fakeLog.warn.mockClear();
+
+    await provider.hangUp('call-1');
+
+    expect((provider as any).client.calls).not.toHaveBeenCalled();
+    expect(fakeLog.warn).not.toHaveBeenCalled();
+    expect(provider.isAnyCallActive()).toBe(false);
+  });
+
+  it('leaves an answered call to its Media Stream, even when completed arrives first', async () => {
+    const provider = new TwilioProvider();
+    await originate(provider);
+    const ws = fakeWebSocket();
+    provider.handleMediaStreamConnection(ws as any);
+    ws.emitMessage({ event: 'start', start: { streamSid: 'MZ1', callSid: 'CA-out-1', customParameters: { callId: 'call-1' } } });
+    const events: TelephonyEvent[] = [];
+    provider.on('event', (e) => events.push(e));
+
+    provider.handleStatusCallback('call-1', 'completed', 'CA-out-1');
+
+    expect(events).toEqual([]);
+  });
+
+  it('ends a call that completed without its Media Stream ever connecting (e.g. the TwiML webhook failed)', async () => {
+    const provider = new TwilioProvider();
+    await originate(provider);
+    const events: TelephonyEvent[] = [];
+    provider.on('event', (e) => events.push(e));
+
+    provider.handleStatusCallback('call-1', 'completed', 'CA-out-1');
+
+    expect(events).toEqual([{ callId: 'call-1', type: 'ended', reason: "the call ended before Banjo's audio connected" }]);
+  });
+
+  it('ignores an unknown call, a CallSid that belongs to another call, and a status that is not final', async () => {
+    const provider = new TwilioProvider();
+    await originate(provider);
+    const events: TelephonyEvent[] = [];
+    provider.on('event', (e) => events.push(e));
+
+    provider.handleStatusCallback('no-such-call', 'no-answer', 'CA-out-1');
+    provider.handleStatusCallback('call-1', 'no-answer', 'CA-someone-else');
+    provider.handleStatusCallback('call-1', 'in-progress', 'CA-out-1');
+
+    expect(events).toEqual([]);
+    expect(provider.isAnyCallActive()).toBe(true);
+  });
+});

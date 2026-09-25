@@ -8,6 +8,7 @@ const buildDeclineTwiml = vi.fn(() => '<Response><Reject reason="busy"/></Respon
 const isAnyCallActive = vi.fn(() => false);
 const buildTwiml = vi.fn(() => '<Response></Response>');
 const handleAmdCallback = vi.fn();
+const handleStatusCallback = vi.fn();
 const handleMediaStreamConnection = vi.fn();
 const handleInboundMediaStreamConnection = vi.fn();
 
@@ -34,6 +35,7 @@ vi.mock('../src/telephony/factory.js', () => ({
     isAnyCallActive,
     buildTwiml,
     handleAmdCallback,
+    handleStatusCallback,
     handleMediaStreamConnection,
     handleInboundMediaStreamConnection,
   }),
@@ -257,6 +259,32 @@ describe('POST /telephony/twilio/twiml', () => {
 
     expect(res.status).toBe(403);
     expect(validateRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /telephony/twilio/status', () => {
+  it("hands a validly signed call status to the provider, with the call's CallSid", async () => {
+    const res = await app.request('/telephony/twilio/status?callId=call-1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': 'valid-signature' },
+      body: new URLSearchParams({ CallStatus: 'no-answer', CallSid: 'CA-out-1' }).toString(),
+    });
+
+    expect(res.status).toBe(204);
+    expect(handleStatusCallback).toHaveBeenCalledWith('call-1', 'no-answer', 'CA-out-1');
+  });
+
+  it('rejects an invalidly signed status callback with 403, without ending anything', async () => {
+    validateRequest.mockReturnValueOnce(false);
+
+    const res = await app.request('/telephony/twilio/status?callId=call-1', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': 'bad-signature' },
+      body: new URLSearchParams({ CallStatus: 'no-answer', CallSid: 'CA-out-1' }).toString(),
+    });
+
+    expect(res.status).toBe(403);
+    expect(handleStatusCallback).not.toHaveBeenCalled();
   });
 });
 

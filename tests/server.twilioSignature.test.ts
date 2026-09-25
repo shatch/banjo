@@ -30,6 +30,7 @@ vi.mock('../src/telephony/factory.js', () => ({
     isAnyCallActive: vi.fn(() => false),
     buildTwiml,
     handleAmdCallback: vi.fn(),
+    handleStatusCallback: vi.fn(),
     handleMediaStreamConnection: vi.fn(),
     handleInboundMediaStreamConnection: vi.fn(),
   }),

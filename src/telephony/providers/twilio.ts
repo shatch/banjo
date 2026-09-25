@@ -12,6 +12,20 @@ const logger = childLogger({ component: 'telephony:twilio' });
 /** How many ended call ids to remember for hangUp(); far above any concurrency Banjo runs at. */
 const RECENTLY_ENDED_LIMIT = 500;
 
+/**
+ * Final CallStatus values for an outbound call that ended without ever
+ * reaching the Media Stream, mapped to the reason recorded on the task and
+ * shown in the owner's notification ("Couldn't complete the call to X — …").
+ * See handleStatusCallback.
+ */
+const UNCONNECTED_CALL_REASONS: Record<string, string> = {
+  'no-answer': 'no one answered',
+  busy: 'the line was busy',
+  failed: 'the call could not be connected',
+  canceled: 'the call was canceled before it connected',
+  completed: "the call ended before Banjo's audio connected",
+};
+
 /** Standard DTMF dual-tone frequency pairs (low, high), in Hz. */
 const DTMF_FREQUENCIES: Record<string, [number, number]> = {
   '1': [697, 1209],
@@ -133,6 +147,12 @@ export class TwilioProvider implements TelephonyProvider {
       asyncAmdStatusCallback: opts.answeringMachineDetection
         ? `https://${config.PUBLIC_HOSTNAME}/telephony/twilio/amd-callback?callId=${opts.callId}`
         : undefined,
+      // The call's final status. The Media Stream is the only other signal
+      // that a call ended, and an unanswered or busy call never opens one —
+      // see handleStatusCallback.
+      statusCallback: `https://${config.PUBLIC_HOSTNAME}/telephony/twilio/status?callId=${opts.callId}`,
+      statusCallbackEvent: ['completed'],
+      statusCallbackMethod: 'POST',
     });
 
     const state = this.calls.get(opts.callId);
@@ -460,6 +480,37 @@ export class TwilioProvider implements TelephonyProvider {
     const normalized = KNOWN_VALUES.has(answeredBy) ? (answeredBy as 'human' | 'machine_start' | 'fax' | 'unknown') : 'unknown';
     const event: TelephonyEvent = { callId, type: 'answering_machine_detected', answeredBy: normalized };
     this.emitter.emit('event', event);
+  }
+
+  /**
+   * Called by the server's `/telephony/twilio/status` route with an outbound
+   * call's final CallStatus. Ends a call that never reached the Media
+   * Stream: before this, an unanswered or busy call produced no telephony
+   * event at all, so its CallSession never ended, the call stayed in the
+   * live-call registry (src/tasks/liveCalls.ts), the stale-call sweep kept
+   * skipping it as live, and its task sat in 'calling' until the process
+   * restarted.
+   *
+   * A call whose Media Stream connected is left to the stream: its 'stop'
+   * (or the socket closing) already ends it, and a 'completed' racing ahead
+   * of that must not cut into the end of a real conversation. Unknown or
+   * already-ended calls, and a CallSid that isn't this call's, are ignored.
+   */
+  handleStatusCallback(callId: string, callStatus: string, callSid?: string): void {
+    const state = this.calls.get(callId);
+    if (!state) return;
+    if (callSid && state.providerCallId && callSid !== state.providerCallId) {
+      logger.warn({ callId, callSid, providerCallId: state.providerCallId }, 'status callback CallSid does not match this call — ignoring');
+      return;
+    }
+    if (state.ws) return;
+    const reason = UNCONNECTED_CALL_REASONS[callStatus];
+    if (!reason) return;
+
+    logger.info({ callId, callStatus }, 'Twilio reported the call ended before its Media Stream connected');
+    const event: TelephonyEvent = { callId, type: 'ended', reason };
+    this.emitter.emit('event', event);
+    this.forgetCall(callId);
   }
 
   sendAudio(callId: string, chunk: AudioChunk): void {
