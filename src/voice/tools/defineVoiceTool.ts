@@ -45,11 +45,12 @@ export interface VoiceTool<TInput = unknown, TCtx = CallContext> {
    * limits must allow for it instead: the tool-pending watchdog is re-armed
    * with this budget once any endsCall turn_end wait is over, and end()/fail()
    * keep waiting for the handler for that long (toolBudgetMs). Omit it and the
-   * tool gets the default budget, as every tool did before (one benign change:
-   * the watchdog's first arm now clears any timer already running, so a
-   * concurrent tool call replaces an earlier one's watchdog rather than
-   * leaving it running unreferenced). Ignored for a tool with verbatimMessage,
-   * which has its own larger budget.
+   * tool gets the default budget, as every tool did before (one benign change
+   * for concurrent tool calls: the watchdog's first arm now clears any timer
+   * already running and records the arming call as its owner, and only that
+   * owner clears it or resumes 'active' when it finishes; while an endsCall
+   * tool runs, no other tool call re-arms it). Ignored for a tool with
+   * verbatimMessage, which has its own larger budget.
    */
   handlerBudgetMs?: number;
 }
