@@ -262,6 +262,21 @@ describe('transfer_to_owner on outbound calls (#7)', () => {
     });
   });
 
+  it('retries recording the transfer once if the first write throws (#7 review)', async () => {
+    const { transferToOwnerTool } = await import('../../src/tasks/callSessionAdapter.js');
+    transitionTask.mockRejectedValueOnce(new Error('db blip'));
+    const telephony = { ...fakeTelephony, transferCall: vi.fn(async () => {}) };
+    const result = await transferToOwnerTool.handler(
+      { reason: 'they need a card number' },
+      { task: { id: 'task-1', status: 'negotiating' }, callId: 'call-attempt-1', telephony, estimatedAudioDoneAt: Date.now() } as never,
+    );
+    expect(result).toEqual({ ok: true });
+    expect(transitionTask).toHaveBeenCalledTimes(2);
+    expect(transitionTask).toHaveBeenLastCalledWith('task-1', 'transferred', {
+      outcome: { kind: 'transferred', reason: 'they need a card number' },
+    });
+  });
+
   it('leaves the task alone when the redirect fails', async () => {
     const { transferToOwnerTool } = await import('../../src/tasks/callSessionAdapter.js');
     const telephony = { ...fakeTelephony, transferCall: vi.fn(async () => { throw new Error('twilio 500'); }) };

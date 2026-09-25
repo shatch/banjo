@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TelephonyProvider } from '../../src/telephony/providers/types.js';
 
-// transfer.ts reuses runToolSafely from callTools.ts, which imports the task
+// transfer.ts reuses waitForPlayback from callTools.ts, which imports the task
 // service; stub it so nothing here reaches a DB.
 vi.mock('../../src/tasks/service.js', () => ({ transitionTask: vi.fn(), isTerminalStatus: () => false }));
 
 const { config } = await import('../../src/config/index.js');
-const { defineTransferTool, transferAfterSpeaking, TRANSFER_TOOL_NAME } = await import('../../src/telephony/transfer.js');
+const { defineTransferTool, transferAfterSpeaking, TRANSFER_TOOL_NAME, TRANSFER_HANDLER_BUDGET_MS } = await import('../../src/telephony/transfer.js');
 
 function ctxWith(transferCall?: TelephonyProvider['transferCall'], estimatedAudioDoneAt = Date.now()) {
   return {
@@ -74,6 +74,25 @@ describe('defineTransferTool (#7)', () => {
 
     expect(result).toMatchObject({ ok: false, error: 'transfer_failed' });
     expect(onTransferred).not.toHaveBeenCalled();
+  });
+
+  it('declares a handler budget covering the playback wait and both Twilio REST calls, so CallSession waits for it', () => {
+    const tool = defineTransferTool({ onTransferred: vi.fn(async () => {}) });
+    expect(tool.handlerBudgetMs).toBe(TRANSFER_HANDLER_BUDGET_MS);
+    expect(TRANSFER_HANDLER_BUDGET_MS).toBeGreaterThanOrEqual(6_000 + 2 * 30_000);
+  });
+
+  it('a redirect slower than TOOL_TIMEOUT_MS still reports success — it is never cut off part-way', async () => {
+    vi.useFakeTimers();
+    const transferCall = vi.fn(() => new Promise<void>((resolve) => setTimeout(resolve, config.TOOL_TIMEOUT_MS + 5_000)));
+    const onTransferred = vi.fn(async () => {});
+    const tool = defineTransferTool({ onTransferred });
+
+    const result = tool.handler({ reason: 'x' }, ctxWith(transferCall));
+    await vi.advanceTimersByTimeAsync(config.TOOL_TIMEOUT_MS + 6_000);
+
+    expect(await result).toEqual({ ok: true });
+    expect(onTransferred).toHaveBeenCalledTimes(1);
   });
 
   it('still reports success when recording it afterwards fails — the call has already been handed over', async () => {

@@ -34,14 +34,30 @@ export async function notifyTaskOutcome(taskId: string, disclosure?: DisclosureR
 }
 
 /**
- * transfer_to_owner for outbound calls (#7). Defined here rather than in
- * voice/tools/callTools.ts: recording it needs notifyTaskOutcome from this
- * file, and this file already imports callTools.ts.
+ * transfer_to_owner for outbound calls (#7). Defined here, beside the
+ * outbound tool list that offers it, rather than in voice/tools/callTools.ts:
+ * callTools.ts holds the tools every outbound call gets, and this one is
+ * built from telephony/transfer.ts's defineTransferTool and offered only when
+ * TRANSFER_ENABLED is on.
+ *
+ * The hook only records the outcome. It does not notify: the redirect ends
+ * the media stream, so CallSession.end() runs and its notifyIfTerminal sends
+ * the one text, with the disclosure note — the same as every other outcome
+ * tool. Notifying here as well texted the owner twice.
+ *
+ * Retried once: the call is already with the principal, and a task left at
+ * 'negotiating' would be marked failed (and texted as a failure) when the
+ * call ends (#7 review).
  */
 export const transferToOwnerTool = defineTransferTool<CallContext>({
   async onTransferred(input, ctx) {
-    await transitionTask(ctx.task.id, 'transferred', { outcome: { kind: 'transferred', reason: input.reason } });
-    await notifyTaskOutcome(ctx.task.id);
+    const record = () => transitionTask(ctx.task.id, 'transferred', { outcome: { kind: 'transferred', reason: input.reason } });
+    try {
+      await record();
+    } catch (err) {
+      logger.error({ err, taskId: ctx.task.id, callId: ctx.callId }, 'call transferred, but recording it failed; retrying once');
+      await record();
+    }
   },
 });
 

@@ -474,10 +474,7 @@ export class CallSession<TCtx = CallContext> {
     // if a call has been tool-pending unreasonably long, something is wrong
     // beyond a single slow API call, and we shouldn't trust every code path
     // to always eventually emit *something*.
-    this.toolPendingWatchdog = setTimeout(() => {
-      logger.error({ callId: this.opts.callId, toolCallId, name }, 'Tool call watchdog fired — forcing call end');
-      void this.fail('tool_pending_watchdog', new Error(`Tool ${name} did not resolve in time`));
-    }, TOOL_PENDING_WATCHDOG_MS);
+    this.armToolPendingWatchdog(toolCallId, name, TOOL_PENDING_WATCHDOG_MS);
 
     const tool = this.toolRegistry.get(name);
     if (!tool) {
@@ -523,17 +520,16 @@ export class CallSession<TCtx = CallContext> {
 
     try {
       if (tool.endsCall) await this.waitForTurnEnd(TURN_END_WAIT_MS);
+      // A tool with its own handler budget (VoiceTool.handlerBudgetMs) gets it
+      // from here — the same point toolBudgetMs counts it from.
+      if (tool.handlerBudgetMs !== undefined && !tool.verbatimMessage) this.armToolPendingWatchdog(toolCallId, name, tool.handlerBudgetMs);
       let verbatimDelivery: VerbatimDeliveryReport | undefined;
       if (tool.verbatimMessage) {
         // This forced turn can legitimately take much longer than a normal
         // tool call (reading an entire voicemail message aloud) — re-arm the
         // session-level watchdog with a larger budget before starting it, so
         // a real message doesn't get killed as if it were a stuck handler.
-        if (this.toolPendingWatchdog) clearTimeout(this.toolPendingWatchdog);
-        this.toolPendingWatchdog = setTimeout(() => {
-          logger.error({ callId: this.opts.callId, toolCallId, name }, 'Tool call watchdog fired — forcing call end');
-          void this.fail('tool_pending_watchdog', new Error(`Tool ${name} did not resolve in time`));
-        }, VERBATIM_TOOL_PENDING_BUDGET_MS);
+        this.armToolPendingWatchdog(toolCallId, name, VERBATIM_TOOL_PENDING_BUDGET_MS);
         await this.speakVerbatim(tool.verbatimMessage(parsed.data));
         // Only a provider that can't guarantee verbatim playback reports what
         // was actually said (openai-live); undefined leaves the handler on its
@@ -584,6 +580,15 @@ export class CallSession<TCtx = CallContext> {
     return this.waitForTurnEnd(SPEAK_VERBATIM_TIMEOUT_MS);
   }
 
+  /** (Re-)arms the session-level tool-pending watchdog: `budgetMs` from now, the call fails as stuck. */
+  private armToolPendingWatchdog(toolCallId: string, name: string, budgetMs: number): void {
+    if (this.toolPendingWatchdog) clearTimeout(this.toolPendingWatchdog);
+    this.toolPendingWatchdog = setTimeout(() => {
+      logger.error({ callId: this.opts.callId, toolCallId, name }, 'Tool call watchdog fired — forcing call end');
+      void this.fail('tool_pending_watchdog', new Error(`Tool ${name} did not resolve in time`));
+    }, budgetMs);
+  }
+
   private clearWatchdogAndResume(): void {
     if (this.toolPendingWatchdog) clearTimeout(this.toolPendingWatchdog);
     this.toolPendingWatchdog = null;
@@ -618,11 +623,15 @@ export class CallSession<TCtx = CallContext> {
    * How long a tool call may legitimately run: the same budget its own
    * tool-pending watchdog gives it (#3). A verbatim tool first waits up to
    * TURN_END_WAIT_MS for turn_end, then gets VERBATIM_TOOL_PENDING_BUDGET_MS.
+   * A tool with handlerBudgetMs (transfer_to_owner) gets that budget after its
+   * endsCall turn_end wait, so end() keeps waiting for a redirect still in
+   * flight instead of recording the call as failed over it (#7).
    */
   private toolBudgetMs(name: string): number {
-    return this.toolRegistry.get(name)?.verbatimMessage
-      ? TURN_END_WAIT_MS + VERBATIM_TOOL_PENDING_BUDGET_MS
-      : TOOL_PENDING_WATCHDOG_MS;
+    const tool = this.toolRegistry.get(name);
+    if (tool?.verbatimMessage) return TURN_END_WAIT_MS + VERBATIM_TOOL_PENDING_BUDGET_MS;
+    if (tool?.handlerBudgetMs !== undefined) return (tool.endsCall ? TURN_END_WAIT_MS : 0) + tool.handlerBudgetMs;
+    return TOOL_PENDING_WATCHDOG_MS;
   }
 
   private trackToolHandler(run: Promise<void>, budgetMs: number): void {

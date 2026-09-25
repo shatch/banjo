@@ -751,6 +751,57 @@ describe('CallSession: the call ending while a tool handler is still running', (
     }
   });
 
+  describe('a tool with its own handler budget (handlerBudgetMs, #7)', () => {
+    // transfer_to_owner cannot be cut off once its redirect is sent, so it
+    // declares how long it may run; the watchdog and end()'s wait honor it.
+    function sessionWithBudgetedTool(handlerBudgetMs: number) {
+      const s = sessionWithSlowTool();
+      s.options.tools = [{ ...s.options.tools[0]!, endsCall: true, handlerBudgetMs }];
+      return s;
+    }
+
+    it('the tool-pending watchdog allows the declared budget, counted after the turn_end wait', async () => {
+      vi.useFakeTimers();
+      try {
+        const { options, order, handler } = sessionWithBudgetedTool(60_000);
+        await new CallSession(options).start();
+        voiceAIEmitter.emit('event', { type: 'tool_call', call: { id: 'call-1', name: 'slow_tool', arguments: {} } } satisfies VoiceAIEvent);
+        voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(handler).toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(59_000); // far past the default 15s
+        expect(order).not.toContain('status:failed');
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.advanceTimersByTimeAsync(61_000 + 1_000); // fail() then waits out the in-flight budget
+        expect(order).toContain('status:failed');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('end() keeps waiting for it through TURN_END_WAIT_MS plus the declared budget', async () => {
+      vi.useFakeTimers();
+      try {
+        const { telephony, options, order, handler, finish } = sessionWithBudgetedTool(60_000);
+        await new CallSession(options).start();
+        voiceAIEmitter.emit('event', { type: 'tool_call', call: { id: 'call-1', name: 'slow_tool', arguments: {} } } satisfies VoiceAIEvent);
+        voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(handler).toHaveBeenCalled();
+        telephony.emit({ callId: callAttempt.id, type: 'ended', reason: 'stop' });
+
+        await vi.advanceTimersByTimeAsync(40_000); // past the default 15s + 1s margin
+        expect(order).not.toContain('status:ended');
+        finish();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(order).toEqual(['status:started', 'handler finished', 'status:ended']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('a failure mid-tool also waits for the handler, so a booking still landing is recorded before "failed" (#3)', async () => {
     // A telephony error (or the tool-pending watchdog) during
     // confirm_appointment used to record 'failed' — and text a failure —
