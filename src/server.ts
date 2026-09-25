@@ -14,6 +14,8 @@ import { registerMcpRoutes } from './mcp/server.js';
 import { healthRoutes } from './routes/health.js';
 import { CallSession } from './session/callSession.js';
 import { createTelephonyProvider } from './telephony/factory.js';
+import type { TransferResult } from './tasks/schema.js';
+import { recordTransferResult } from './tasks/service.js';
 
 /**
  * Twilio-specific hooks not part of the common TelephonyProvider interface
@@ -31,6 +33,7 @@ interface TwilioHttpHooks {
   registerInboundCall(callSid: string, from: string): void;
   unregisterInboundCall(callSid: string): void;
   handleInboundMediaStreamConnection(ws: WebSocket): void;
+  buildTransferCallbackTwiml(result: TransferResult): string;
 }
 
 /**
@@ -87,7 +90,7 @@ app.post('/telephony/twilio/twiml', async (c) => {
   }
   const callId = c.req.query('callId') ?? '';
   const twiml = telephony.buildTwiml(callId);
-  logger.info({ callId, twiml }, 'serving TwiML for outbound call');
+  logger.info({ callId, twimlLength: twiml.length }, 'serving TwiML for outbound call');
   return c.body(twiml, 200, { 'Content-Type': 'text/xml' });
 });
 
@@ -102,6 +105,44 @@ app.post('/telephony/twilio/amd-callback', async (c) => {
   logger.info({ callId, answeredBy }, 'AMD callback received');
   telephony.handleAmdCallback(callId, answeredBy);
   return c.body(null, 204);
+});
+
+/** Twilio's DialCallStatus, as recorded on call_attempts.transfer_result. Anything unknown counts as failed. */
+function transferResultFrom(dialCallStatus: unknown): TransferResult {
+  switch (dialCallStatus) {
+    case 'completed':
+    case 'answered':
+      return 'answered';
+    case 'no-answer':
+      return 'no_answer';
+    case 'busy':
+      return 'busy';
+    default:
+      return 'failed';
+  }
+}
+
+/**
+ * The <Dial action> of a transfer_to_owner redirect (#7): Twilio calls this
+ * when the dial to the principal ends, and runs the TwiML it returns — the
+ * fallback line when they weren't reached. Recording the result must never
+ * keep that TwiML from going back, or the caller is left in silence.
+ */
+app.post('/telephony/twilio/transfer-callback', async (c) => {
+  const body = await c.req.parseBody();
+  if (!isValidTwilioSignature(c, body as Record<string, string>)) {
+    logger.warn({ path: c.req.path }, 'rejected Twilio webhook with invalid or missing signature');
+    return c.body(null, 403);
+  }
+  const callId = c.req.query('callId') ?? '';
+  const result = transferResultFrom(body.DialCallStatus);
+  try {
+    const recorded = await recordTransferResult(callId, result);
+    logger.info({ callId, result, recorded }, 'transfer dial ended');
+  } catch (err) {
+    logger.error({ err, callId, result }, 'could not record the transfer result');
+  }
+  return c.body(telephony.buildTransferCallbackTwiml(result), 200, { 'Content-Type': 'text/xml' });
 });
 
 /**
