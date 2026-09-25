@@ -172,12 +172,29 @@ function transferSection(direction: CallDirection): GuidanceSection {
 /**
  * Appended only to the voice-layer prompt. A voice front-end with no tools of
  * its own reads every "call this tool" line in the shared guidance as
- * "delegate this" — this section says so explicitly.
+ * "delegate this" — this section says so explicitly. The transfer line is
+ * added only when TRANSFER_ENABLED is on, so the flag-off prompt is unchanged
+ * (#7).
  */
-const DELEGATION_GUIDANCE: string[] = [
+function delegationGuidance(): string[] {
+  return [
+    ...DELEGATION_GUIDANCE_HEAD,
+    ...(config.TRANSFER_ENABLED
+      ? [
+          `- Connecting the other party to ${config.ASSISTANT_PRINCIPAL_NAME} is also your backend's job: saying "connecting you now" does not connect anyone. Once they have said yes and you have said your one handoff line, delegate the transfer to your backend in that same turn, then say nothing more.`,
+        ]
+      : []),
+    ...DELEGATION_GUIDANCE_TAIL,
+  ];
+}
+
+const DELEGATION_GUIDANCE_HEAD: string[] = [
   'Delegating to your backend (IMPORTANT — you are the voice of this call, not the part that takes actions):',
   '- You cannot check a calendar, book or reschedule anything, record an outcome, leave a voicemail, press phone-menu keys, or end the call yourself. A backend assistant with the full call instructions and tools does all of that when you delegate to it.',
   '- Wherever the guidance above says to use, call, or invoke a tool, delegate that task to your backend instead — including ending the call.',
+];
+
+const DELEGATION_GUIDANCE_TAIL: string[] = [
   '- Never tell the other party something has been checked, booked, or recorded until your backend has reported the result.',
   '- If you are instructed to say a specific message word for word, say exactly that message and nothing else.',
   '- Ending the call (IMPORTANT — on real calls the other party said goodbye, you said goodbye back several times, and the line never closed because ending it was never delegated): saying goodbye does NOT hang up the phone. The line stays open until your backend ends it. As soon as you have said your goodbye, immediately delegate ending the call to your backend, in that same turn. Do not wait for the other party to hang up, and do not say goodbye again instead.',
@@ -220,5 +237,5 @@ export function buildBaseSystemPromptGuidance(direction: CallDirection = 'outbou
  */
 export function buildFrontendSystemPromptGuidance(direction: CallDirection = 'outbound'): string {
   const voiceSections = guidanceSections(direction).filter((section) => section.voiceLayer);
-  return renderSections([...voiceSections, { voiceLayer: true, lines: DELEGATION_GUIDANCE }]);
+  return renderSections([...voiceSections, { voiceLayer: true, lines: delegationGuidance() }]);
 }

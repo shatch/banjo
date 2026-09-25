@@ -248,6 +248,38 @@ describe('transfer guidance (#7)', () => {
     }
   });
 
+  it('tells a voice layer to delegate the transfer to its backend only when enabled, leaving the flag-off prompt untouched', async () => {
+    // openai-live's voice layer has no tools; the generic delegation list
+    // ("cannot check a calendar, book..., end the call yourself") never said
+    // connecting the caller was also the backend's job.
+    const { config } = await import('../../src/config/index.js');
+    try {
+      for (const direction of ['outbound', 'inbound'] as const) {
+        config.TRANSFER_ENABLED = false;
+        const off = buildFrontendSystemPromptGuidance(direction);
+        config.TRANSFER_ENABLED = true;
+        const on = buildFrontendSystemPromptGuidance(direction);
+
+        expect(off).not.toMatch(/delegate the transfer/i);
+        const delegation = on.split('\n\n').at(-1)!;
+        const transferLine = delegation.split('\n').find((line) => /delegate the transfer/i.test(line));
+        expect(transferLine).toBeDefined();
+        expect(transferLine).toContain('Alex');
+        expect(buildBaseSystemPromptGuidance(direction)).not.toMatch(/delegate the transfer/i);
+
+        // Removing what the flag adds gives back the flag-off prompt byte for byte.
+        const stripped = on
+          .split('\n\n')
+          .filter((section) => !section.startsWith('Transferring to'))
+          .join('\n\n')
+          .replace(`\n${transferLine}`, '');
+        expect(stripped).toBe(off);
+      }
+    } finally {
+      config.TRANSFER_ENABLED = false;
+    }
+  });
+
   it("asks before transferring, and falls back to the direction's own escalation tool", async () => {
     const { config } = await import('../../src/config/index.js');
     try {
