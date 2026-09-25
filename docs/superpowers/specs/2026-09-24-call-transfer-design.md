@@ -111,14 +111,19 @@ known fields, not XML bodies.
   - Schema: `{ reason: string }`. The reason is metadata for the principal, not spoken to the callee, so no
     `verbatimMessage`.
   - `endsCall: true`, so `CallSession` waits for the current turn (the handoff line) before running it.
-  - Handler, inside `runToolSafely`: `transferAfterSpeaking(ctx)`, then `onTransferred(input, ctx)`, then
+  - Handler: `transferAfterSpeaking(ctx)`, then `onTransferred(input, ctx)`, then
     `{ ok: true }`. If `transferAfterSpeaking` throws, it returns
     `{ ok: false, error: 'transfer_failed', message }` and does not call `onTransferred`.
+    Not wrapped in `runToolSafely`: its `TOOL_TIMEOUT_MS` could fire while the redirect is in flight and tell
+    the model a transfer failed that then went through. Instead the tool declares `handlerBudgetMs`
+    (`TRANSFER_HANDLER_BUDGET_MS`), which `CallSession`'s tool-pending watchdog and its `end()`/`fail()` wait
+    honor (final review of #7).
 
-**Outbound tool** (`transferToOwnerTool` in `src/tasks/callSessionAdapter.ts`, beside `outboundToolsFor`; not in
-`callTools.ts`, which `callSessionAdapter.ts` imports, so importing `notifyTaskOutcome` back would be a cycle),
-whose hook does: `transitionTask(task.id, 'transferred', { outcome: { kind: 'transferred', reason } })`,
-then `notifyTaskOutcome(task.id)`. The transition runs after the redirect succeeds, never before: a failed
+**Outbound tool** (`transferToOwnerTool` in `src/tasks/callSessionAdapter.ts`, beside `outboundToolsFor`),
+whose hook does: `transitionTask(task.id, 'transferred', { outcome: { kind: 'transferred', reason } })`, retried
+once if it throws. It does not notify: the redirect ends the stream, so `CallSession.end()`'s `notifyIfTerminal`
+sends the one text, as for every other outcome (an earlier draft also called `notifyTaskOutcome` here, which
+texted the owner twice). The transition runs after the redirect succeeds, never before: a failed
 redirect must not leave a task marked transferred while its call is still live. The `end()`/`fail()` wait for
 running tools (#62) means this write lands before the adapter's fallback `failed` when the stream closes.
 

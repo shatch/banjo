@@ -134,6 +134,11 @@ conversation length, silence still bills, and how much the model talks varies pe
 across real calls, all-in vendor spend has run roughly $0.11–$0.17 per minute**, dominated by voice
 AI rather than telephony. A 3-minute booking call is somewhere around $0.35–$0.50.
 
+A call transfer (`TRANSFER_ENABLED`) adds a second billed Twilio leg: an outbound call to
+`TRANSFER_TO_PHONE_NUMBER`, at the outbound rate above, for as long as you're on it — on top of
+the original call's leg, which stays up while you talk. The voice AI stops billing once the call is
+handed over.
+
 Two honest notes. Pick `gpt-realtime-mini` and audio costs drop by about two thirds, at some
 quality cost. And don't run Banjo to save money against a SaaS subscription — at these rates you'd
 need a lot of calls, and the saving won't pay for an hour of your attention. Run it because it's

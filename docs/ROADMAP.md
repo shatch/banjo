@@ -68,7 +68,7 @@ made, not deferred. See item 3 — if only one of the two ships, ship them toget
 
 ## 2. Call transfer, behind a flag
 
-> **Cold transfer shipped** on branch `feat/call-transfer` (#7): `TRANSFER_ENABLED`,
+> **Cold transfer shipped** with #7: `TRANSFER_ENABLED`,
 > `TRANSFER_TO_PHONE_NUMBER`, a REST-redirect `<Dial>` to one fixed number, only after the other
 > party agrees, gated on both the tool and the prompt rule. See `docs/ARCHITECTURE.md`'s "Call
 > transfer (#7)" section for how it works. Still open: **warm transfer** (needs a second concurrent
@@ -96,9 +96,10 @@ the inbound line.
 
 > **[Superseded]** Shipped `transferCall()` does *not* copy the `finally` block: it forgets the call
 > only after the REST redirect succeeds, not unconditionally. A `finally` here would forget a call
-> whose redirect failed — one Banjo still has to keep talking on — and would let `CallSession`'s
-> teardown `hangUp()` end a call that never actually transferred. See `docs/ARCHITECTURE.md`'s "Call
-> transfer (#7)" section.
+> whose redirect failed — one Banjo still has to keep talking on. Forgetting it also turns
+> `CallSession`'s teardown `hangUp()` into a no-op, so when that call later ended, nothing would hang
+> it up: an untransferred call left live and silent. See `docs/ARCHITECTURE.md`'s "Call transfer (#7)"
+> section.
 
 ### Seams
 
@@ -136,7 +137,7 @@ concurrent-call handling is a prerequisite, and a bigger change than the transfe
 Also: `src/server.ts` logs the entire TwiML body at `info`. That's harmless now and leaks the
 transfer destination number the moment `<Dial>` appears in it.
 
-> **[Fixed]** in `5d3de5c` on this branch: `src/server.ts` and `TwilioProvider` now log
+> **[Fixed]** with #7: `src/server.ts` and `TwilioProvider` now log
 > `{ callId, twimlLength }`, never the TwiML body.
 
 ---
