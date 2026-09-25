@@ -65,6 +65,14 @@ export interface TelephonyProvider {
   /** Delete a stored recording; one that is already gone counts as deleted. Used by retention (recordings/retention.ts). */
   deleteRecording?(recordingId: string): Promise<void>;
 
+  /**
+   * Cold-transfer a live call to `to` (#7): the call is redirected to dial
+   * that number, and Banjo drops off it. Optional, like startRecording: a
+   * provider without it can't transfer, and transfer_to_owner reports that.
+   * Throws when the redirect fails; the call is then still Banjo's.
+   */
+  transferCall?(callId: string, opts: { to: string }): Promise<void>;
+
   on(event: 'event', listener: TelephonyEventListener): void;
   off(event: 'event', listener: TelephonyEventListener): void;
 }
