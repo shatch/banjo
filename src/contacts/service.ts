@@ -1,5 +1,6 @@
 import { eq, ilike, or } from 'drizzle-orm';
 import { db } from '../db/index.js';
+import { normalizePhoneNumber } from '../googleContacts/phoneNormalization.js';
 import { isPostgresUniqueViolation } from '../lib/postgresErrors.js';
 import { contacts, type Contact, type NewContact } from './schema.js';
 
@@ -13,6 +14,18 @@ const CONTACTS_UNIQUE_CONSTRAINTS = new Set(['contacts_phone_number_unique', 'co
  */
 export function isContactsUniqueViolation(err: unknown): boolean {
   return isPostgresUniqueViolation(err, CONTACTS_UNIQUE_CONSTRAINTS);
+}
+
+/**
+ * Every stored phone number is E.164, so one phone is one contact: the unique
+ * index can only catch a duplicate it can see, and the per-number call cap
+ * (tasks/callCap.ts) counts per contact. Without this, "+14155551234" and
+ * "415-555-1234" were two contacts, each with its own calls.
+ */
+function toStoredPhoneNumber(raw: string): string {
+  const normalized = normalizePhoneNumber(raw);
+  if (!normalized) throw new Error(`"${raw}" isn't a valid phone number — use E.164 format, e.g. "+14155551234"`);
+  return normalized;
 }
 
 export async function addContact(input: {
@@ -29,7 +42,7 @@ export async function addContact(input: {
     .insert(contacts)
     .values({
       displayName: input.displayName,
-      phoneNumber: input.phoneNumber,
+      phoneNumber: toStoredPhoneNumber(input.phoneNumber),
       category: input.category ?? 'other',
       notes: input.notes,
       bookingUrl: input.bookingUrl,
@@ -59,13 +72,43 @@ export async function updateContact(
     >
   >,
 ): Promise<Contact> {
+  const normalized = patch.phoneNumber === undefined ? patch : { ...patch, phoneNumber: toStoredPhoneNumber(patch.phoneNumber) };
   const [row] = await db
     .update(contacts)
-    .set({ ...patch, updatedAt: new Date() })
+    .set({ ...normalized, updatedAt: new Date() })
     .where(eq(contacts.id, id))
     .returning();
   if (!row) throw new Error(`Contact not found: ${id}`);
   return row;
+}
+
+/**
+ * Rewrites any contact whose phone number was stored before addContact
+ * normalized to E.164, so lookups (which normalize) still find it and a new
+ * add_contact can't create a second row for the same phone. Run at startup;
+ * a no-op once every row is E.164. A row whose normalized number another
+ * contact already holds is left as-is and reported rather than merged — that
+ * needs a person to decide which contact wins.
+ */
+export async function normalizeStoredPhoneNumbers(): Promise<{ updated: number; conflicts: number; invalid: number }> {
+  const result = { updated: 0, conflicts: 0, invalid: 0 };
+  const rows = await db.select({ id: contacts.id, phoneNumber: contacts.phoneNumber }).from(contacts);
+  for (const row of rows) {
+    const normalized = normalizePhoneNumber(row.phoneNumber);
+    if (!normalized) {
+      result.invalid += 1;
+      continue;
+    }
+    if (normalized === row.phoneNumber) continue;
+    try {
+      await db.update(contacts).set({ phoneNumber: normalized, updatedAt: new Date() }).where(eq(contacts.id, row.id));
+      result.updated += 1;
+    } catch (err) {
+      if (!isContactsUniqueViolation(err)) throw err;
+      result.conflicts += 1;
+    }
+  }
+  return result;
 }
 
 export async function listContacts(category?: Contact['category']): Promise<Contact[]> {
@@ -82,7 +125,9 @@ export async function getContact(id: string): Promise<Contact | undefined> {
 
 /** The dedupe/lookup key src/googleContacts/reconcile.ts and inbound caller-ID resolution rely on. */
 export async function getContactByPhoneNumber(phoneNumber: string): Promise<Contact | undefined> {
-  const [row] = await db.select().from(contacts).where(eq(contacts.phoneNumber, phoneNumber));
+  const normalized = normalizePhoneNumber(phoneNumber);
+  if (!normalized) return undefined;
+  const [row] = await db.select().from(contacts).where(eq(contacts.phoneNumber, normalized));
   return row;
 }
 

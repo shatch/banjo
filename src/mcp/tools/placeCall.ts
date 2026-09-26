@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { config } from '../../config/index.js';
 import { zonedTimeToUtcIso } from '../../lib/timezone.js';
+import { checkCallCap, describeCallCapRefusal } from '../../tasks/callCap.js';
 import { createTask } from '../../tasks/service.js';
 import { triggerOrchestration } from '../../tasks/orchestrator.js';
 import type { TaskConstraints } from '../../tasks/schema.js';
@@ -98,6 +99,17 @@ export async function placeCallHandler(input: z.infer<typeof placeCallInputSchem
     throw new Error(
       `scheduledFor "${input.scheduledFor}" is already in the past (${formatInCalendarTimezone(scheduledFor)} ${config.CALENDAR_TIMEZONE}) — check the date and year, or omit scheduledFor to call now`,
     );
+  }
+
+  // At most MAX_CALLS_PER_NUMBER_PER_DAY calls to one number in any 24 hours,
+  // counting calls already queued to dial (tasks/callCap.ts). Refused before
+  // anything is created. A call scheduled for later isn't checked here: today's
+  // calls may have left the window by then, so the orchestrator checks it when
+  // it comes due instead.
+  const callsNow = !scheduledFor || scheduledFor.getTime() <= Date.now();
+  if (callsNow) {
+    const cap = await checkCallCap(input.contactId, new Date(), { includeQueued: true });
+    if (!cap.allowed) throw new Error(describeCallCapRefusal(cap));
   }
 
   const task = await createTask({

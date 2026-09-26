@@ -34,10 +34,15 @@ Steve, in conversation with Claude: "Schedule a haircut with Clauda"
   │
   └─ PHONE path (delegated to Banjo):
         Claude calls place_call(contactId, taskDescription, constraints)
+        → Banjo: per-number call cap (src/tasks/callCap.ts) — for a call now, refuse if this number already
+          had MAX_CALLS_PER_NUMBER_PER_DAY calls (default 3) in the last 24 hours, counting queued ones
+          (a call scheduled for later is checked when it comes due instead)
         → Banjo: createTask (status: pending) → returns { taskId, ackMessage } immediately
         → Claude tells Steve: "Started calling Clauda's Salon, I'll let you know how it goes."
         → [async, in Banjo's orchestrator — src/tasks/orchestrator.ts]
            checking_availability (query Steve's Google Calendar → candidateWindows)
+           → call cap checked (before the calendar lookup, then again under a per-contact lock right
+             before dialing — over the cap → failed, "Call limit reached", no dial)
            → calling (build call system prompt, TelephonyProvider.originateCall() — Twilio outbound)
            → negotiating (call connects → CallSession pipes audio between TelephonyProvider ⇄ VoiceAIProvider)
               ├─ tool: check_my_availability  → live re-check if the offered time is outside candidateWindows
@@ -80,6 +85,41 @@ Call ends → CallSession.end() → VoiceAIProvider.disconnect() → notify Stev
 The `CallSession` is the only component that touches both a `TelephonyProvider` and a `VoiceAIProvider` at once — neither provider layer is aware the other exists. This is what makes both sides independently swappable.
 
 ---
+
+### Per-number call cap
+
+At most `MAX_CALLS_PER_NUMBER_PER_DAY` (default 3) outbound calls to one phone number in any rolling 24
+hours, with no override. The rule came from live testing on 2026-09-25, when five test calls went to one
+friend in a single evening. The cap counts per contact (`call_attempts` joined to `tasks`). That equals
+per number because `addContact` and `updateContact` store every number normalized to E.164 (libphonenumber,
+the same normalizer Google Contacts sync uses) and `contacts.phone_number` is unique. Rows stored before that
+are normalized at startup (`normalizeStoredPhoneNumbers`). A row whose normalized number another contact
+already holds is left alone and logged, not merged. Without normalization,
+"+14155551234" and "415-555-1234" would be two contacts, each with its own calls.
+
+It's enforced in two places:
+
+- **`place_call`**, for a call that should start now. It checks before creating anything, and it also
+  counts calls that are due and about to dial, so a burst of requests can't queue past the cap. A call
+  scheduled for later isn't checked here: by the time it's due, today's calls may have left the
+  window.
+- **The orchestrator**, for every call, right before dialing. It does one quick check before the
+  calendar lookup, and the check that counts runs under a per-contact lock spanning the check, the move
+  to `calling`, and the call-attempt insert. The lock is chained in-process and backed by a Postgres
+  advisory lock (`pg_advisory_xact_lock`), so two due calls can't both pass, even in separate processes
+  on the same database (e.g. `npm run test:call` alongside `npm run dev`). At most 4 contacts' locked sections run at once per
+  process: each holds a pooled connection in the lock's transaction while its work needs another, and the
+  pool's default of 10 would otherwise run dry and hang every query. A call over the cap becomes
+  `failed` ("Call limit reached…") and the owner is notified. If inserting the call attempt fails,
+  the task is failed rather than left in `calling`.
+
+The refusal gives the time the next call fits: when enough counted calls have left the window. If queued
+calls alone fill the cap, it says so instead, because they haven't started yet.
+
+What counts: every call attempt Banjo inserts. That includes an attempt whose dial then failed (bad
+number, Twilio error), so a debugging session that burns three failed dials uses up the day's cap for
+that number. Inbound calls and the transfer leg to the principal don't count, since Banjo didn't
+originate them. The window is rolling, not per calendar day.
 
 ## Voice AI abstraction layer (`src/voice/`)
 
