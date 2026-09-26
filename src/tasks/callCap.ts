@@ -53,6 +53,32 @@ export async function checkCallCap(
 const dialLocks = new Map<string, Promise<unknown>>();
 
 /**
+ * How many contacts' locked dial sections may run at once in this process.
+ * Each holds one pooled connection in an open transaction (the advisory lock)
+ * while its work needs another; with the pool's default of 10, ten at once
+ * would leave the work nothing to run on and hang every query in the process.
+ */
+const MAX_CONCURRENT_DIAL_SECTIONS = 4;
+let dialSectionsRunning = 0;
+const dialSectionWaiters: Array<() => void> = [];
+
+async function withDialSectionSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (dialSectionsRunning >= MAX_CONCURRENT_DIAL_SECTIONS) {
+    await new Promise<void>((resolve) => dialSectionWaiters.push(resolve));
+  } else {
+    dialSectionsRunning += 1;
+  }
+  try {
+    return await work();
+  } finally {
+    // Hand the slot straight to the next waiter, or give it back.
+    const next = dialSectionWaiters.shift();
+    if (next) next();
+    else dialSectionsRunning -= 1;
+  }
+}
+
+/**
  * Runs `work` with no other dial to the same contact in progress, so two due
  * tasks can't both pass the cap check before either has recorded its call
  * attempt. Chained in-process first, so only one database connection per
@@ -61,7 +87,7 @@ const dialLocks = new Map<string, Promise<unknown>>();
  */
 export async function withContactDialLock<T>(contactId: string, work: () => Promise<T>): Promise<T> {
   const previous = dialLocks.get(contactId) ?? Promise.resolve();
-  const run = previous.catch(() => {}).then(() => withContactAdvisoryLock(contactId, work));
+  const run = previous.catch(() => {}).then(() => withDialSectionSlot(() => withContactAdvisoryLock(contactId, work)));
   const settled = run.catch(() => {});
   dialLocks.set(contactId, settled);
   try {

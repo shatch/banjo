@@ -72,13 +72,43 @@ export async function updateContact(
     >
   >,
 ): Promise<Contact> {
+  const normalized = patch.phoneNumber === undefined ? patch : { ...patch, phoneNumber: toStoredPhoneNumber(patch.phoneNumber) };
   const [row] = await db
     .update(contacts)
-    .set({ ...patch, updatedAt: new Date() })
+    .set({ ...normalized, updatedAt: new Date() })
     .where(eq(contacts.id, id))
     .returning();
   if (!row) throw new Error(`Contact not found: ${id}`);
   return row;
+}
+
+/**
+ * Rewrites any contact whose phone number was stored before addContact
+ * normalized to E.164, so lookups (which normalize) still find it and a new
+ * add_contact can't create a second row for the same phone. Run at startup;
+ * a no-op once every row is E.164. A row whose normalized number another
+ * contact already holds is left as-is and reported rather than merged — that
+ * needs a person to decide which contact wins.
+ */
+export async function normalizeStoredPhoneNumbers(): Promise<{ updated: number; conflicts: number; invalid: number }> {
+  const result = { updated: 0, conflicts: 0, invalid: 0 };
+  const rows = await db.select({ id: contacts.id, phoneNumber: contacts.phoneNumber }).from(contacts);
+  for (const row of rows) {
+    const normalized = normalizePhoneNumber(row.phoneNumber);
+    if (!normalized) {
+      result.invalid += 1;
+      continue;
+    }
+    if (normalized === row.phoneNumber) continue;
+    try {
+      await db.update(contacts).set({ phoneNumber: normalized, updatedAt: new Date() }).where(eq(contacts.id, row.id));
+      result.updated += 1;
+    } catch (err) {
+      if (!isContactsUniqueViolation(err)) throw err;
+      result.conflicts += 1;
+    }
+  }
+  return result;
 }
 
 export async function listContacts(category?: Contact['category']): Promise<Contact[]> {

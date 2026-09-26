@@ -2,6 +2,7 @@
 // touches env vars — a bad deploy should be caught here, not discovered by
 // Steve mid-call.
 import { config } from './config/index.js';
+import { normalizeStoredPhoneNumbers } from './contacts/service.js';
 import { runMigrations } from './db/migrate.js';
 import { startGoogleContactsSyncPoller } from './googleContacts/sync.js';
 import { logger } from './lib/logger.js';
@@ -37,6 +38,15 @@ if (config.PROMPT_PROFILE_FILE) {
 // orchestration poller, long after startup looked successful.
 if (config.RUN_MIGRATIONS_ON_BOOT) {
   await runMigrations();
+}
+
+// Phone numbers stored before they were normalized to E.164 — lookups and the
+// per-number call cap assume one format (src/contacts/service.ts).
+{
+  const phoneFix = await normalizeStoredPhoneNumbers();
+  if (phoneFix.updated || phoneFix.conflicts || phoneFix.invalid) {
+    logger.warn(phoneFix, 'normalized stored contact phone numbers — conflicts/invalid rows need a manual look');
+  }
 }
 
 startServer();

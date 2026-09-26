@@ -91,8 +91,10 @@ The `CallSession` is the only component that touches both a `TelephonyProvider` 
 At most `MAX_CALLS_PER_NUMBER_PER_DAY` (default 3) outbound calls to one phone number in any rolling 24
 hours, with no override. The rule came from live testing on 2026-09-25, when five test calls went to one
 friend in a single evening. The cap counts per contact (`call_attempts` joined to `tasks`). That equals
-per number because `addContact` stores every number normalized to E.164 (libphonenumber, the same
-normalizer Google Contacts sync uses) and `contacts.phone_number` is unique. Without normalization,
+per number because `addContact` and `updateContact` store every number normalized to E.164 (libphonenumber,
+the same normalizer Google Contacts sync uses) and `contacts.phone_number` is unique. Rows stored before that
+are normalized at startup (`normalizeStoredPhoneNumbers`). A row whose normalized number another contact
+already holds is left alone and logged, not merged. Without normalization,
 "+14155551234" and "415-555-1234" would be two contacts, each with its own calls.
 
 It's enforced in two places:
@@ -105,7 +107,9 @@ It's enforced in two places:
   calendar lookup, and the check that counts runs under a per-contact lock spanning the check, the move
   to `calling`, and the call-attempt insert. The lock is chained in-process and backed by a Postgres
   advisory lock (`pg_advisory_xact_lock`), so two due calls can't both pass, even in separate processes
-  on the same database (e.g. `npm run test:call` alongside `npm run dev`). A call over the cap becomes
+  on the same database (e.g. `npm run test:call` alongside `npm run dev`). At most 4 contacts' locked sections run at once per
+  process: each holds a pooled connection in the lock's transaction while its work needs another, and the
+  pool's default of 10 would otherwise run dry and hang every query. A call over the cap becomes
   `failed` ("Call limit reached…") and the owner is notified. If inserting the call attempt fails,
   the task is failed rather than left in `calling`.
 

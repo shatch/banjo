@@ -109,3 +109,27 @@ describe('withContactDialLock across processes', () => {
     expect(withContactAdvisoryLock).toHaveBeenCalledWith('c9', expect.any(Function));
   });
 });
+
+describe('dial sections are capped per process, so locks cannot exhaust the connection pool', () => {
+  it(`runs at most ${4} contacts' locked sections at once`, async () => {
+    let inside = 0;
+    let maxInside = 0;
+    const releases: Array<() => void> = [];
+    const runs = ['p1', 'p2', 'p3', 'p4', 'p5', 'p6'].map((id) =>
+      withContactDialLock(id, async () => {
+        inside += 1;
+        maxInside = Math.max(maxInside, inside);
+        await new Promise<void>((r) => releases.push(r));
+        inside -= 1;
+      }),
+    );
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    expect(inside).toBe(4);
+    while (releases.length) {
+      releases.shift()!();
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+    }
+    await Promise.all(runs);
+    expect(maxInside).toBe(4);
+  });
+});
