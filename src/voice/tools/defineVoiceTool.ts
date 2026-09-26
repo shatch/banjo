@@ -37,6 +37,22 @@ export interface VoiceTool<TInput = unknown, TCtx = CallContext> {
    * Steve, not content meant for the other party's ears.
    */
   verbatimMessage?: (input: TInput) => string;
+  /**
+   * How long this tool's handler may run, for a tool whose work cannot be cut
+   * off part-way (transfer_to_owner, telephony/transfer.ts: once its redirect
+   * is sent, the call may already be with the principal). Such a handler is
+   * not wrapped in runToolSafely's TOOL_TIMEOUT_MS, so CallSession's own
+   * limits must allow for it instead: the tool-pending watchdog is re-armed
+   * with this budget once any endsCall turn_end wait is over, and end()/fail()
+   * keep waiting for the handler for that long (toolBudgetMs). Omit it and the
+   * tool gets the default budget, as every tool did before (one benign change
+   * for concurrent tool calls: the watchdog's first arm now clears any timer
+   * already running and records the arming call as its owner, and only that
+   * owner clears it or resumes 'active' when it finishes; while an endsCall
+   * tool runs, no other tool call re-arms it). Ignored for a tool with
+   * verbatimMessage, which has its own larger budget.
+   */
+  handlerBudgetMs?: number;
 }
 
 export function defineVoiceTool<TInput, TCtx = CallContext>(spec: VoiceTool<TInput, TCtx>): VoiceTool<TInput, TCtx> {

@@ -10,6 +10,11 @@ import { config, disclosureLine } from '../config/index.js';
 
 type CallDirection = 'outbound' | 'inbound';
 
+// #7: must match telephony/transfer.ts's TRANSFER_TOOL_NAME. Not imported
+// from there — this module deliberately depends only on config, and
+// transfer.ts imports callTools.ts, which pulls in the task service and DB.
+const TRANSFER_TOOL_NAME = 'transfer_to_owner';
+
 /**
  * One blank-line-separated block of the base guidance. `voiceLayer` marks
  * whether the block also belongs in the voice-layer prompt of a provider that
@@ -23,7 +28,7 @@ interface GuidanceSection {
 }
 
 function guidanceSections(direction: CallDirection): GuidanceSection[] {
-  return [
+  const sections: GuidanceSection[] = [
     {
       voiceLayer: true,
       lines: [
@@ -139,17 +144,57 @@ function guidanceSections(direction: CallDirection): GuidanceSection[] {
       ],
     },
   ];
+
+  if (config.TRANSFER_ENABLED) sections.push(transferSection(direction));
+  return sections;
+}
+
+/**
+ * When to hand the call to the principal (#7). Only present when
+ * TRANSFER_ENABLED is on, alongside the tool itself. Part of the fixed rules,
+ * ahead of the owner profile, so a profile line can't widen it.
+ */
+function transferSection(direction: CallDirection): GuidanceSection {
+  const principal = config.ASSISTANT_PRINCIPAL_NAME;
+  const fallback = direction === 'outbound' ? 'escalate_and_end_call' : 'flag_for_owner_and_end_call';
+  return {
+    voiceLayer: true,
+    lines: [
+      `Transferring to ${principal}:`,
+      `- You can connect the other party to ${principal} by phone with ${TRANSFER_TOOL_NAME}. Use it only when they need ${principal} personally: they ask for ${principal}, they need payment or personal details only ${principal} can give, or they need a decision you can't make. Anything else, handle yourself or end the call as usual.`,
+      `- First ask whether they'd like to be connected to ${principal} now. Transfer only after a clear yes; if they decline, carry on without it.`,
+      `- Once they agree, say one short handoff line such as "Connecting you now, one moment." Then use ${TRANSFER_TOOL_NAME} with a short reason, and say nothing after it — you are off the call.`,
+      `- If the transfer fails, apologize briefly, then use ${fallback} with the reason instead.`,
+    ],
+  };
 }
 
 /**
  * Appended only to the voice-layer prompt. A voice front-end with no tools of
  * its own reads every "call this tool" line in the shared guidance as
- * "delegate this" — this section says so explicitly.
+ * "delegate this" — this section says so explicitly. The transfer line is
+ * added only when TRANSFER_ENABLED is on, so the flag-off prompt is unchanged
+ * (#7).
  */
-const DELEGATION_GUIDANCE: string[] = [
+function delegationGuidance(): string[] {
+  return [
+    ...DELEGATION_GUIDANCE_HEAD,
+    ...(config.TRANSFER_ENABLED
+      ? [
+          `- Connecting the other party to ${config.ASSISTANT_PRINCIPAL_NAME} is also your backend's job: saying "connecting you now" does not connect anyone. Once they have said yes and you have said your one handoff line, delegate the transfer to your backend in that same turn, then say nothing more.`,
+        ]
+      : []),
+    ...DELEGATION_GUIDANCE_TAIL,
+  ];
+}
+
+const DELEGATION_GUIDANCE_HEAD: string[] = [
   'Delegating to your backend (IMPORTANT — you are the voice of this call, not the part that takes actions):',
   '- You cannot check a calendar, book or reschedule anything, record an outcome, leave a voicemail, press phone-menu keys, or end the call yourself. A backend assistant with the full call instructions and tools does all of that when you delegate to it.',
   '- Wherever the guidance above says to use, call, or invoke a tool, delegate that task to your backend instead — including ending the call.',
+];
+
+const DELEGATION_GUIDANCE_TAIL: string[] = [
   '- Never tell the other party something has been checked, booked, or recorded until your backend has reported the result.',
   '- If you are instructed to say a specific message word for word, say exactly that message and nothing else.',
   '- Ending the call (IMPORTANT — on real calls the other party said goodbye, you said goodbye back several times, and the line never closed because ending it was never delegated): saying goodbye does NOT hang up the phone. The line stays open until your backend ends it. As soon as you have said your goodbye, immediately delegate ending the call to your backend, in that same turn. Do not wait for the other party to hang up, and do not say goodbye again instead.',
@@ -192,5 +237,5 @@ export function buildBaseSystemPromptGuidance(direction: CallDirection = 'outbou
  */
 export function buildFrontendSystemPromptGuidance(direction: CallDirection = 'outbound'): string {
   const voiceSections = guidanceSections(direction).filter((section) => section.voiceLayer);
-  return renderSections([...voiceSections, { voiceLayer: true, lines: DELEGATION_GUIDANCE }]);
+  return renderSections([...voiceSections, { voiceLayer: true, lines: delegationGuidance() }]);
 }

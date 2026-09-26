@@ -33,6 +33,8 @@ export function buildOutcomeSummary(contact: Contact, outcome: TaskOutcome): str
       return `Couldn't complete the call to ${contact.displayName} — ${outcome.reason}.`;
     case 'conversation_completed':
       return `Called ${contact.displayName}: ${outcome.summary}`;
+    case 'transferred':
+      return `Transferred ${contact.displayName} to you — ${outcome.reason}.`;
   }
 }
 

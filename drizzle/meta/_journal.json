@@ -29,6 +29,13 @@
       "when": 1790271092228,
       "tag": "0003_zippy_mordo",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790295942972,
+      "tag": "0004_nice_magdalene",
+      "breakpoints": true
     }
   ]
 }

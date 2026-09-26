@@ -228,3 +228,70 @@ describe('after a booking goes through, say what was booked (#44)', () => {
     });
   }
 });
+
+describe('transfer guidance (#7)', () => {
+  it('is absent when TRANSFER_ENABLED is off, and present in every prompt when on', async () => {
+    const { config } = await import('../../src/config/index.js');
+    try {
+      config.TRANSFER_ENABLED = false;
+      for (const direction of ['outbound', 'inbound'] as const) {
+        expect(buildBaseSystemPromptGuidance(direction)).not.toContain('transfer_to_owner');
+        expect(buildFrontendSystemPromptGuidance(direction)).not.toContain('transfer_to_owner');
+      }
+      config.TRANSFER_ENABLED = true;
+      for (const direction of ['outbound', 'inbound'] as const) {
+        expect(buildBaseSystemPromptGuidance(direction)).toContain('transfer_to_owner');
+        expect(buildFrontendSystemPromptGuidance(direction)).toContain('transfer_to_owner');
+      }
+    } finally {
+      config.TRANSFER_ENABLED = false;
+    }
+  });
+
+  it('tells a voice layer to delegate the transfer to its backend only when enabled, leaving the flag-off prompt untouched', async () => {
+    // openai-live's voice layer has no tools; the generic delegation list
+    // ("cannot check a calendar, book..., end the call yourself") never said
+    // connecting the caller was also the backend's job.
+    const { config } = await import('../../src/config/index.js');
+    try {
+      for (const direction of ['outbound', 'inbound'] as const) {
+        config.TRANSFER_ENABLED = false;
+        const off = buildFrontendSystemPromptGuidance(direction);
+        config.TRANSFER_ENABLED = true;
+        const on = buildFrontendSystemPromptGuidance(direction);
+
+        expect(off).not.toMatch(/delegate the transfer/i);
+        const delegation = on.split('\n\n').at(-1)!;
+        const transferLine = delegation.split('\n').find((line) => /delegate the transfer/i.test(line));
+        expect(transferLine).toBeDefined();
+        expect(transferLine).toContain('Alex');
+        expect(buildBaseSystemPromptGuidance(direction)).not.toMatch(/delegate the transfer/i);
+
+        // Removing what the flag adds gives back the flag-off prompt byte for byte.
+        const stripped = on
+          .split('\n\n')
+          .filter((section) => !section.startsWith('Transferring to'))
+          .join('\n\n')
+          .replace(`\n${transferLine}`, '');
+        expect(stripped).toBe(off);
+      }
+    } finally {
+      config.TRANSFER_ENABLED = false;
+    }
+  });
+
+  it("asks before transferring, and falls back to the direction's own escalation tool", async () => {
+    const { config } = await import('../../src/config/index.js');
+    try {
+      config.TRANSFER_ENABLED = true;
+      const outbound = buildBaseSystemPromptGuidance('outbound');
+      const inbound = buildBaseSystemPromptGuidance('inbound');
+      expect(outbound).toMatch(/ask .*whether they'd like to be connected/i);
+      expect(outbound).toContain('escalate_and_end_call');
+      expect(inbound).toContain('flag_for_owner_and_end_call');
+      expect(inbound).not.toContain('escalate_and_end_call');
+    } finally {
+      config.TRANSFER_ENABLED = false;
+    }
+  });
+});

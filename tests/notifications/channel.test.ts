@@ -34,4 +34,9 @@ describe('buildOutcomeSummary', () => {
     expect(summary).toContain('Thursday, September 24 at 4:00 PM');
     expect(summary).not.toContain('8:00');
   });
+
+  it('summarizes a transfer (#7)', () => {
+    const summary = buildOutcomeSummary({ displayName: "Luigi's" } as Contact, { kind: 'transferred', reason: 'they need a card number' });
+    expect(summary).toBe("Transferred Luigi's to you — they need a card number.");
+  });
 });

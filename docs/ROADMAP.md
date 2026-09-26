@@ -68,6 +68,15 @@ made, not deferred. See item 3 — if only one of the two ships, ship them toget
 
 ## 2. Call transfer, behind a flag
 
+> **Cold transfer shipped** with #7 ([PR #67](https://github.com/shatch/banjo/pull/67)): `TRANSFER_ENABLED`,
+> `TRANSFER_TO_PHONE_NUMBER`, a REST-redirect `<Dial>` to one fixed number, only after the other
+> party agrees, gated on both the tool and the prompt rule. See `docs/ARCHITECTURE.md`'s "Call
+> transfer (#7)" section for how it works. Still open: **warm transfer** (needs a second concurrent
+> call leg — `isAnyCallActive()` is still the entire concurrency policy) and, as the next step
+> before that, **a whisper to the principal before bridging** (a short "Banjo transfer: `<contact>`,
+> `<reason>`" played to you before the call connects — deferred because SMS is blocked on 10DLC
+> registration today, so v1 transfers arrive with no context at all).
+
 **Why:** the current escape hatch when a call needs a human is `escalate_and_end_call` /
 `flag_for_owner_and_end_call` — hang up and notify. Handing the live call to a person instead is the
 difference between "it gave up" and "it got you there". Vocode has this on both Twilio and Vonage;
@@ -85,10 +94,23 @@ is the thing to copy — **including its `finally` block**. That cleanup exists 
 `isAnyCallActive()` otherwise latches true forever, and a transfer that forgets it silently wedges
 the inbound line.
 
+> **[Superseded]** Shipped `transferCall()` does *not* copy the `finally` block: it forgets the call
+> only after the REST redirect succeeds, not unconditionally. A `finally` here would forget a call
+> whose redirect failed — one Banjo still has to keep talking on. Forgetting it also turns
+> `CallSession`'s teardown `hangUp()` into a no-op, so when that call later ended, nothing would hang
+> it up: an untransferred call left live and silent. See `docs/ARCHITECTURE.md`'s "Call transfer (#7)"
+> section.
+
 ### Seams
 
 - Add `transferCall` to the `TelephonyProvider` interface (`src/telephony/providers/types.ts`) and a
-  corresponding arm to `TelephonyEvent` (`transfer_completed` / `transfer_failed`).
+  corresponding arm to `TelephonyEvent` (`transfer_completed` / `transfer_failed`). **[Superseded]**
+  `transferCall` was added as sketched; the `TelephonyEvent` arm was deliberately not. The dial
+  result (who answered) arrives via Twilio's `<Dial action>` callback only after the bridged call
+  ends, by which point the `CallSession` that would have held the listener is already gone. A failed
+  *redirect* is a different, immediate failure, and is returned to the model directly instead. See
+  the design spec's "Deviations from the issue's sketch" and `docs/ARCHITECTURE.md`'s "Call transfer
+  (#7)" section.
 - The tool itself belongs in `src/telephony/`, next to `dtmf.ts`, not in `src/voice/tools/`. The
   18-line header on `dtmf.ts` is the argument: this is phone signaling, so its handler routes
   straight into the telephony layer rather than a domain service.
@@ -114,6 +136,9 @@ concurrent-call handling is a prerequisite, and a bigger change than the transfe
 
 Also: `src/server.ts` logs the entire TwiML body at `info`. That's harmless now and leaks the
 transfer destination number the moment `<Dial>` appears in it.
+
+> **[Fixed]** with #7: `src/server.ts` and `TwilioProvider` now log
+> `{ callId, twimlLength }`, never the TwiML body.
 
 ---
 

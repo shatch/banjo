@@ -3,7 +3,7 @@ import type { CalendarProvider } from '../calendar/types.js';
 import type { CallSessionOptions } from '../session/callSession.js';
 import type { TelephonyProvider } from '../telephony/providers/types.js';
 import { updateInboundCall } from './service.js';
-import { inboundTools } from './tools.js';
+import { inboundToolsFor } from './tools.js';
 import type { InboundCall } from './schema.js';
 import type { InboundCallContext } from './types.js';
 import { saveTranscriptTurn } from '../transcripts/service.js';
@@ -33,7 +33,7 @@ export function buildInboundCallSessionOptions(params: {
     telephony,
     systemPrompt,
     frontendSystemPrompt,
-    tools: inboundTools,
+    tools: inboundToolsFor(),
     greetOnConnect: true,
 
     async beginCall() {

@@ -574,6 +574,37 @@ describe('suggestTimesTool.handler', () => {
   });
 });
 
+describe('inbound transfer_to_owner (#7)', () => {
+  it('texts the owner who is being put through, after the redirect succeeds', async () => {
+    // Two earlier tests in this file (bookAppointmentTool/rescheduleBookingTool's
+    // "does not make the caller wait on the Steve-notification SMS" cases)
+    // leave sendOwnerSms's mock implementation permanently set to a
+    // never-resolving promise — clearAllMocks() (file-wide beforeEach)
+    // clears call history but not a mockImplementation override. Those
+    // tools fire sendOwnerSms without awaiting it, so it never mattered to
+    // them; transfer_to_owner's onTransferred does await it, so restore a
+    // resolving implementation here first.
+    sendOwnerSms.mockImplementation(async () => {});
+    const { inboundTransferToOwnerTool } = await import('../../src/inbound/tools.js');
+    const { config } = await import('../../src/config/index.js');
+    config.TRANSFER_TO_PHONE_NUMBER = '+15557654321';
+    const transferCall = vi.fn(async () => {});
+    // The handler also waits on a setTimeout for trailing playback
+    // (waitForPlayback, src/voice/tools/callTools.ts) before transferring —
+    // the file-wide beforeEach installs fake timers, so advance them
+    // explicitly (matching tests/telephony/transfer.test.ts's own pattern)
+    // instead of leaving that timer pending.
+    const resultPromise = inboundTransferToOwnerTool.handler(
+      { reason: 'wants to talk about an invoice' },
+      { callId: 'CA-in-1', callerPhoneNumber: '+15555550100', telephony: { transferCall }, estimatedAudioDoneAt: Date.now() } as never,
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+    const result = await resultPromise;
+    expect(result).toEqual({ ok: true });
+    expect(sendOwnerSms).toHaveBeenCalledWith('Transferring inbound caller +15555550100 to you — wants to talk about an invoice');
+  });
+});
+
 describe('inbound tool registration', () => {
   it('registers all 7 inbound tools with unique names', async () => {
     const { inboundTools } = await import('../../src/inbound/tools.js');

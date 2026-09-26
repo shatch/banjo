@@ -15,6 +15,7 @@ export const taskStatusEnum = pgEnum('task_status', [
   'negotiation_failed', // reached a human, no offered time fit constraints
   'escalated', // AI (or the skill, on the online path) got stuck
   'conversation_completed', // NEW — open-ended conversational call reached a natural close
+  'transferred', // (phone path) handed to the principal via transfer_to_owner (#7)
   'failed', // technical failure (no answer, bad number, telephony/API error)
   'cancelled', // Steve cancelled before completion
 ]);
@@ -45,7 +46,8 @@ export type TaskOutcome =
   | { kind: 'negotiation_failed'; reason: string }
   | { kind: 'escalated'; reason: string }
   | { kind: 'failed'; reason: string }
-  | { kind: 'conversation_completed'; summary: string };
+  | { kind: 'conversation_completed'; summary: string }
+  | { kind: 'transferred'; reason: string };
 
 export const tasks = pgTable('tasks', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -66,6 +68,9 @@ export const tasks = pgTable('tasks', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** How a transfer_to_owner dial ended, from Twilio's <Dial action> callback (#7). */
+export type TransferResult = 'answered' | 'no_answer' | 'busy' | 'failed';
 
 export const callAttempts = pgTable('call_attempts', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -89,6 +94,10 @@ export const callAttempts = pgTable('call_attempts', {
   // Twilio RecordingSid when RECORD_CALLS recorded this call (#8); cleared
   // once retention deletes the recording from Twilio (recordings/retention.ts).
   recordingSid: text('recording_sid'),
+  // How a transfer to the principal ended (#7), from Twilio's <Dial action>
+  // callback; null when the call wasn't transferred. Call mechanics, like
+  // `disclosed`: the task's outcome is already 'transferred' by then.
+  transferResult: text('transfer_result').$type<TransferResult>(),
   startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
   endedAt: timestamp('ended_at', { withTimezone: true }),
   errorDetail: text('error_detail'),

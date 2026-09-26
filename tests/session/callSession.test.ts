@@ -751,6 +751,57 @@ describe('CallSession: the call ending while a tool handler is still running', (
     }
   });
 
+  describe('a tool with its own handler budget (handlerBudgetMs, #7)', () => {
+    // transfer_to_owner cannot be cut off once its redirect is sent, so it
+    // declares how long it may run; the watchdog and end()'s wait honor it.
+    function sessionWithBudgetedTool(handlerBudgetMs: number) {
+      const s = sessionWithSlowTool();
+      s.options.tools = [{ ...s.options.tools[0]!, endsCall: true, handlerBudgetMs }];
+      return s;
+    }
+
+    it('the tool-pending watchdog allows the declared budget, counted after the turn_end wait', async () => {
+      vi.useFakeTimers();
+      try {
+        const { options, order, handler } = sessionWithBudgetedTool(60_000);
+        await new CallSession(options).start();
+        voiceAIEmitter.emit('event', { type: 'tool_call', call: { id: 'call-1', name: 'slow_tool', arguments: {} } } satisfies VoiceAIEvent);
+        voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(handler).toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(59_000); // far past the default 15s
+        expect(order).not.toContain('status:failed');
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.advanceTimersByTimeAsync(61_000 + 1_000); // fail() then waits out the in-flight budget
+        expect(order).toContain('status:failed');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('end() keeps waiting for it through TURN_END_WAIT_MS plus the declared budget', async () => {
+      vi.useFakeTimers();
+      try {
+        const { telephony, options, order, handler, finish } = sessionWithBudgetedTool(60_000);
+        await new CallSession(options).start();
+        voiceAIEmitter.emit('event', { type: 'tool_call', call: { id: 'call-1', name: 'slow_tool', arguments: {} } } satisfies VoiceAIEvent);
+        voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(handler).toHaveBeenCalled();
+        telephony.emit({ callId: callAttempt.id, type: 'ended', reason: 'stop' });
+
+        await vi.advanceTimersByTimeAsync(40_000); // past the default 15s + 1s margin
+        expect(order).not.toContain('status:ended');
+        finish();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(order).toEqual(['status:started', 'handler finished', 'status:ended']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
   it('a failure mid-tool also waits for the handler, so a booking still landing is recorded before "failed" (#3)', async () => {
     // A telephony error (or the tool-pending watchdog) during
     // confirm_appointment used to record 'failed' — and text a failure —
@@ -1261,6 +1312,196 @@ describe('CallSession: recording starts only after the recording notice has been
       emit({ type: 'turn_end' });
       await vi.advanceTimersByTimeAsync(5000);
       expect(options.onFailure).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('CallSession: while a call-ending tool is running, nothing else can end the call (#7 follow-up)', () => {
+  // transfer_to_owner may wait ~74s on Twilio's redirect. A silence nudge, or
+  // a second tool call such as end_call, used to be accepted meanwhile and
+  // could hang up the call mid-transfer; it also replaced (then cleared) the
+  // transfer's own tool-pending watchdog.
+  beforeEach(() => {
+    voiceAIEmitter.removeAllListeners('event');
+  });
+
+  function sessionWithTransferAndEndCall() {
+    const telephony = makeFakeTelephony();
+    const options = makeFakeCallSessionOptions(telephony.provider);
+    const order: string[] = [];
+    let finishTransfer!: (result: unknown) => void;
+    const transferHandler = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finishTransfer = resolve;
+        }),
+    );
+    const endCallHandler = vi.fn(async () => {
+      await telephony.provider.hangUp(callAttempt.id);
+      return { ok: true };
+    });
+    let finishLookup!: () => void;
+    const lookupHandler = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          finishLookup = () => {
+            order.push('lookup finished');
+            resolve({ ok: true });
+          };
+        }),
+    );
+    options.tools = [
+      { name: 'transfer_to_owner', description: 'test-only', schema: z.object({}), handler: transferHandler, endsCall: true, handlerBudgetMs: 60_000 },
+      { name: 'end_call', description: 'test-only', schema: z.object({}), handler: endCallHandler, endsCall: true },
+      { name: 'lookup', description: 'test-only', schema: z.object({}), handler: lookupHandler },
+    ];
+    vi.mocked(options.onStatusChange).mockImplementation(async (patch) => {
+      order.push(`status:${patch.kind}`);
+    });
+    return { telephony, options, order, transferHandler, endCallHandler, lookupHandler, finishTransfer: (r: unknown) => finishTransfer(r), finishLookup: () => finishLookup() };
+  }
+
+  const toolCall = (id: string, name: string) =>
+    voiceAIEmitter.emit('event', { type: 'tool_call', call: { id, name, arguments: {} } } satisfies VoiceAIEvent);
+
+  it('refuses a second tool call, never runs its handler, and leaves the first tool\'s watchdog in charge', async () => {
+    vi.useFakeTimers();
+    try {
+      const { telephony, options, order, transferHandler, endCallHandler } = sessionWithTransferAndEndCall();
+      await new CallSession(options).start();
+      toolCall('call-1', 'transfer_to_owner');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(transferHandler).toHaveBeenCalled();
+
+      toolCall('call-2', 'end_call');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(endCallHandler).not.toHaveBeenCalled();
+      expect(telephony.provider.hangUp).not.toHaveBeenCalled();
+      expect(fakeVoiceAI.sendToolResult).toHaveBeenCalledWith('call-2', expect.objectContaining({ ok: false, error: 'call_ending' }), true);
+
+      // Still the transfer's 60s budget, not a replacement 15s one (or none).
+      await vi.advanceTimersByTimeAsync(50_000);
+      expect(order).not.toContain('status:failed');
+      await vi.advanceTimersByTimeAsync(10_000 + 61_000 + 1_000); // past the budget, then fail() waits out the in-flight handler
+      expect(order).toContain('status:failed');
+      expect(options.onFailure).toHaveBeenCalledWith('tool_pending_watchdog');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a non-ending tool arriving while a call-ending tool is in flight still runs, and end() still waits for it', async () => {
+    // One OpenAI response can carry end_call AND confirm_appointment (parallel
+    // tool calls). Refusing the booking during end_call's turn_end wait would
+    // hang up on a booking the callee agreed to, with nothing in Postgres.
+    vi.useFakeTimers();
+    try {
+      const { telephony, options, order, endCallHandler, lookupHandler, finishLookup } = sessionWithTransferAndEndCall();
+      await new CallSession(options).start();
+      toolCall('call-1', 'end_call');
+      toolCall('call-2', 'lookup');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lookupHandler).toHaveBeenCalledTimes(1);
+      expect(fakeVoiceAI.sendToolResult).not.toHaveBeenCalledWith('call-2', expect.anything(), expect.anything());
+
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(endCallHandler).toHaveBeenCalledTimes(1);
+      telephony.emit({ callId: callAttempt.id, type: 'ended', reason: 'stop' });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(order).not.toContain('status:ended');
+
+      finishLookup();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fakeVoiceAI.sendToolResult).toHaveBeenCalledWith('call-2', { ok: true }, false);
+      expect(order).toEqual(['status:started', 'lookup finished', 'status:ended']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a tool that started before the call-ending tool and finishes during it neither clears the ending tool's watchdog nor resumes 'active'", async () => {
+    vi.useFakeTimers();
+    try {
+      const { options, order, transferHandler, lookupHandler, finishLookup } = sessionWithTransferAndEndCall();
+      const session = new CallSession(options);
+      await session.start();
+      toolCall('call-1', 'lookup');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lookupHandler).toHaveBeenCalled();
+      toolCall('call-2', 'transfer_to_owner');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(transferHandler).toHaveBeenCalled();
+
+      finishLookup();
+      await vi.advanceTimersByTimeAsync(0);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((session as any).state).toBe('tool-pending');
+
+      // The transfer's 60s watchdog is still armed and still fires on schedule.
+      await vi.advanceTimersByTimeAsync(55_000);
+      expect(order).not.toContain('status:failed');
+      await vi.advanceTimersByTimeAsync(5_000 + 61_000 + 1_000);
+      expect(options.onFailure).toHaveBeenCalledWith('tool_pending_watchdog');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not nudge or give up on silence while the call-ending tool runs', async () => {
+    vi.useFakeTimers();
+    try {
+      const { options, order, transferHandler } = sessionWithTransferAndEndCall();
+      const session = new CallSession(options);
+      await session.start();
+      toolCall('call-1', 'transfer_to_owner');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(transferHandler).toHaveBeenCalled();
+
+      voiceAIEmitter.emit('event', { type: 'transcript', role: 'user', text: 'Hello? Are you still there?', isFinal: true } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(7000 * 3); // SILENCE_WATCHDOG_MS, then the give-up window, and more
+
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalled();
+      expect(order).not.toContain('status:failed');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((session as any).silenceWatchdog).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('after the call-ending tool fails with the call still live, accepts the next tool call and handles silence again', async () => {
+    vi.useFakeTimers();
+    try {
+      const { telephony, options, order, transferHandler, endCallHandler, finishTransfer } = sessionWithTransferAndEndCall();
+      await new CallSession(options).start();
+      toolCall('call-1', 'transfer_to_owner');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(transferHandler).toHaveBeenCalled();
+
+      finishTransfer({ ok: false, error: 'transfer_failed' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fakeVoiceAI.sendToolResult).toHaveBeenCalledWith('call-1', { ok: false, error: 'transfer_failed' }, false);
+
+      // Silence handling is back.
+      voiceAIEmitter.emit('event', { type: 'transcript', role: 'user', text: 'Hello?', isFinal: true } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(7000); // SILENCE_WATCHDOG_MS
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(1);
+
+      // And the model can end the call the way the prompt tells it to.
+      toolCall('call-2', 'end_call');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(endCallHandler).toHaveBeenCalledTimes(1);
+      expect(telephony.provider.hangUp).toHaveBeenCalledWith(callAttempt.id);
+      expect(order).not.toContain('status:failed');
     } finally {
       vi.useRealTimers();
     }

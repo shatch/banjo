@@ -92,8 +92,12 @@ project with one maintainer. Things worth knowing before you build on it:
   party's greeting and Banjo's opener aren't on the recording. Both are off by default and deleted after
   30 days (`TRANSCRIPT_RETENTION_DAYS`, `RECORDING_RETENTION_DAYS`). Inbound calls are never recorded.
   ([#6](https://github.com/shatch/banjo/issues/6), [#8](https://github.com/shatch/banjo/issues/8))
-- **No call transfer.** When a call needs a human, Banjo hangs up and notifies you rather than
-  handing the call over. ([#7](https://github.com/shatch/banjo/issues/7))
+- **Call transfer is cold and off by default.** With `TRANSFER_ENABLED=true` and `TRANSFER_TO_PHONE_NUMBER`
+  set, Banjo can hand a live call straight to you instead of hanging up and notifying — but only after
+  asking the other party and getting a yes, and only for one fixed number; the model never chooses who to
+  connect. If you don't answer, they hear `TRANSFER_FALLBACK_MESSAGE` and the call ends. No whisper of
+  context before you're bridged in yet, and no warm transfer (Banjo can't stay on the line).
+  ([#7](https://github.com/shatch/banjo/issues/7))
 - **AI disclosure is a prompt rule, checked after the call, not enforced.** Banjo is told to open every
   call with `DISCLOSURE_LINE` (default: *"Hi, I'm an AI assistant calling on behalf of {name}."*, and it
   must say "AI"). Afterwards, its first line is checked. A miss is recorded on the call attempt and
@@ -129,6 +133,11 @@ Translating realtime audio tokens into a per-minute figure is unreliable — inp
 conversation length, silence still bills, and how much the model talks varies per call. **Measured
 across real calls, all-in vendor spend has run roughly $0.11–$0.17 per minute**, dominated by voice
 AI rather than telephony. A 3-minute booking call is somewhere around $0.35–$0.50.
+
+A call transfer (`TRANSFER_ENABLED`) adds a second billed Twilio leg: an outbound call to
+`TRANSFER_TO_PHONE_NUMBER`, at the outbound rate above, for as long as you're on it — on top of
+the original call's leg, which stays up while you talk. The voice AI stops billing once the call is
+handed over.
 
 Two honest notes. Pick `gpt-realtime-mini` and audio costs drop by about two thirds, at some
 quality cost. And don't run Banjo to save money against a SaaS subscription — at these rates you'd

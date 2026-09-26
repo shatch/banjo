@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InboundCall } from '../src/inbound/schema.js';
 
+const { fakeLog } = vi.hoisted(() => ({
+  fakeLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), child: vi.fn() },
+}));
+vi.mock('../src/lib/logger.js', () => ({ childLogger: () => fakeLog, logger: fakeLog }));
+
 const registerInboundCall = vi.fn();
 const unregisterInboundCall = vi.fn();
 const buildInboundTwiml = vi.fn(() => '<Response><Connect><Stream url="wss://x/telephony/twilio/inbound-stream" /></Connect></Response>');
@@ -10,6 +15,9 @@ const buildTwiml = vi.fn(() => '<Response></Response>');
 const handleAmdCallback = vi.fn();
 const handleMediaStreamConnection = vi.fn();
 const handleInboundMediaStreamConnection = vi.fn();
+const buildTransferCallbackTwiml = vi.fn((result: string) =>
+  result === 'answered' ? '<Response><Hangup/></Response>' : '<Response><Say>fallback</Say><Hangup/></Response>',
+);
 
 const validateRequest = vi.fn(() => true);
 vi.mock('twilio', () => ({
@@ -36,7 +44,14 @@ vi.mock('../src/telephony/factory.js', () => ({
     handleAmdCallback,
     handleMediaStreamConnection,
     handleInboundMediaStreamConnection,
+    buildTransferCallbackTwiml,
   }),
+}));
+
+const recordTransferResult = vi.fn(async (_callId: string, _result: string) => true);
+vi.mock('../src/tasks/service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/tasks/service.js')>()),
+  recordTransferResult: (callId: string, result: string) => recordTransferResult(callId, result),
 }));
 
 const createInboundCall = vi.fn(
@@ -345,4 +360,55 @@ describe('Twilio webhook signature validation on /telephony/twilio/inbound', () 
       expect.objectContaining({ CallSid: 'CA-inbound-1', From: '+15555550100' }),
     );
   });
+});
+
+describe('POST /telephony/twilio/transfer-callback (#7)', () => {
+  const post = (query: string, body: Record<string, string>, signature = 'valid-signature') =>
+    app.request(`/telephony/twilio/transfer-callback${query}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': signature },
+      body: new URLSearchParams(body).toString(),
+    });
+
+  it.each([
+    ['completed', 'answered'],
+    ['answered', 'answered'],
+    ['no-answer', 'no_answer'],
+    ['busy', 'busy'],
+    ['failed', 'failed'],
+    ['canceled', 'failed'],
+    ['something-new', 'failed'],
+  ])('DialCallStatus=%s is recorded as %s and answered with the matching TwiML', async (dialStatus, result) => {
+    const res = await post('?callId=attempt-1', { DialCallStatus: dialStatus });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/xml');
+    expect(recordTransferResult).toHaveBeenCalledWith('attempt-1', result);
+    expect(buildTransferCallbackTwiml).toHaveBeenCalledWith(result);
+  });
+
+  it('still answers with TwiML when recording the result throws, so the caller is not left in silence', async () => {
+    recordTransferResult.mockRejectedValueOnce(new Error('db down'));
+    const res = await post('?callId=attempt-1', { DialCallStatus: 'no-answer' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<Say>');
+  });
+
+  it('rejects an unsigned request', async () => {
+    validateRequest.mockReturnValueOnce(false);
+    const res = await post('?callId=attempt-1', { DialCallStatus: 'completed' }, 'bad-signature');
+    expect(res.status).toBe(403);
+    expect(recordTransferResult).not.toHaveBeenCalled();
+  });
+});
+
+it('does not log the outbound TwiML body (#7)', async () => {
+  fakeLog.info.mockClear();
+  await app.request('/telephony/twilio/twiml?callId=c1', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': 'valid-signature' },
+    body: '',
+  });
+  const logged = fakeLog.info.mock.calls.map(([obj]) => obj);
+  expect(logged.some((obj) => obj && typeof obj === 'object' && 'callId' in obj && 'twimlLength' in obj)).toBe(true);
+  expect(logged.every((obj) => !(obj && typeof obj === 'object' && 'twiml' in obj))).toBe(true);
 });

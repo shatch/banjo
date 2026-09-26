@@ -5,6 +5,7 @@ import { config } from '../../config/index.js';
 import { childLogger } from '../../lib/logger.js';
 import { pcm16ToMuLaw } from '../audio/codec.js';
 import type { AudioChunk } from '../../voice/types.js';
+import type { TransferResult } from '../../tasks/schema.js';
 import type { TelephonyEvent, TelephonyEventListener, TelephonyProvider } from './types.js';
 
 const logger = childLogger({ component: 'telephony:twilio' });
@@ -54,6 +55,7 @@ interface TwilioCallState {
   streamSid: string | null;
   providerCallId: string | null;
   toNumber: string;
+  recordingSid?: string; // set by startRecording, so transferCall can stop it (#7)
 }
 
 function sleep(ms: number): Promise<void> {
@@ -564,6 +566,55 @@ export class TwilioProvider implements TelephonyProvider {
   }
 
   /**
+   * Cold transfer (#7). <Connect><Stream> is terminal TwiML, so a live call
+   * can't <Dial> from inside itself: it's redirected over REST instead, the
+   * same shape as hangUp(). Nothing follows the <Dial> — with an `action`,
+   * Twilio runs the callback's TwiML instead (buildTransferCallbackTwiml).
+   */
+  async transferCall(callId: string, opts: { to: string }): Promise<void> {
+    const state = this.calls.get(callId);
+    if (!state?.providerCallId) throw new Error(`transferCall: no live Twilio call for ${callId}`);
+    const call = this.client.calls(state.providerCallId);
+
+    // The callee agreed to a recorded call with Banjo, not to recording the
+    // principal's conversation once the call is bridged.
+    if (state.recordingSid) {
+      await call
+        .recordings(state.recordingSid)
+        .update({ status: 'stopped' })
+        .catch((err: unknown) => logger.warn({ err, callId }, 'could not stop the recording before transfer — transferring anyway'));
+    }
+
+    const response = new twilioLib.twiml.VoiceResponse();
+    const dial = response.dial({
+      timeout: 20,
+      answerOnBridge: true,
+      action: `https://${config.PUBLIC_HOSTNAME}/telephony/twilio/transfer-callback?callId=${encodeURIComponent(callId)}`,
+    });
+    dial.number(opts.to);
+
+    // Deliberately no TwiML (it holds the principal's number) in this log line.
+    logger.info({ callId, providerCallId: state.providerCallId }, 'transferring this call via the Twilio REST API');
+    await call.update({ twiml: response.toString() });
+
+    // Only after success, unlike hangUp()'s finally: a failed redirect leaves
+    // a call Banjo still has to talk on, and the stream's 'stop'/close
+    // handlers forget it whenever it really ends. Forgetting now also makes
+    // CallSession's teardown hangUp() a no-op, where it would otherwise hang
+    // up the bridged call if it ran before Twilio's 'stop' arrives.
+    this.clearInboundRegistrationTimeout(callId);
+    this.forgetCall(callId);
+  }
+
+  /** The TwiML Twilio runs once a transfer's <Dial> ends (#7): hang up if the principal answered, else say the fallback line first. */
+  buildTransferCallbackTwiml(result: TransferResult): string {
+    const response = new twilioLib.twiml.VoiceResponse();
+    if (result !== 'answered') response.say(config.TRANSFER_FALLBACK_MESSAGE);
+    response.hangup();
+    return response.toString();
+  }
+
+  /**
    * Two-track recording (callee and Banjo on separate channels) on the live
    * call, via the in-progress-call Recordings API — the method the demo
    * recordings used, starting ~0.13s after it's asked. Called by CallSession
@@ -573,6 +624,8 @@ export class TwilioProvider implements TelephonyProvider {
     const providerCallId = this.calls.get(callId)?.providerCallId;
     if (!providerCallId) throw new Error(`startRecording: no live Twilio call for ${callId}`);
     const recording = await this.client.calls(providerCallId).recordings.create({ recordingChannels: 'dual', recordingTrack: 'both' });
+    const state = this.calls.get(callId);
+    if (state) state.recordingSid = recording.sid;
     logger.info({ callId, recordingId: recording.sid }, 'call recording started');
     return { recordingId: recording.sid };
   }

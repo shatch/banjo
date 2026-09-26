@@ -9,6 +9,7 @@ import {
   type TaskConstraints,
   type TaskOutcome,
   type TimeWindow,
+  type TransferResult,
 } from './schema.js';
 
 /**
@@ -217,4 +218,18 @@ export async function updateCallAttempt(
   const [row] = await db.update(callAttempts).set(patch).where(eq(callAttempts.id, id)).returning();
   if (!row) throw new Error(`Call attempt not found: ${id}`);
   return row;
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Records how a transfer_to_owner dial ended (#7). `callId` is whatever the
+ * transfer callback was given: a call attempt id for an outbound call, or a
+ * Twilio CallSid for an inbound one, which has no call attempt. Returns
+ * whether a call attempt was updated.
+ */
+export async function recordTransferResult(callId: string, result: TransferResult): Promise<boolean> {
+  if (!UUID_PATTERN.test(callId)) return false;
+  const rows = await db.update(callAttempts).set({ transferResult: result }).where(eq(callAttempts.id, callId)).returning({ id: callAttempts.id });
+  return rows.length > 0;
 }

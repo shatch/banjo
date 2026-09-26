@@ -115,6 +115,87 @@ export interface TelephonyProvider {
 - **`dtmf.ts`** — the `press_digits` tool routes to `TelephonyProvider.sendDigits()`, not a domain/backend service. This is a deliberate architectural distinction from the calendar/task-backed tools in `voice/tools/callTools.ts`: DTMF is phone signaling, not AI speech, even though it's registered with the Voice AI provider exactly like any other tool.
 - **`audio/codec.ts`** — `muLawToPcm16`, `pcm16ToMuLaw`, `resamplePcm16`. `src/session/audioPipeline.ts` resolves which conversion (if any) is needed once per call, based on `(telephony's native format, negotiated voice-AI format)`. When both sides support mu-law directly (OpenAI/ElevenLabs paired with Twilio), it's pure passthrough — a real latency/CPU win. A naive linear-interpolation resampler is used for v1; a proper resampling library is a flagged future upgrade, not a blocker.
 
+### Call transfer (#7)
+
+`transfer.ts` (next to `dtmf.ts`, same reasoning: this is phone signaling, not AI speech) defines
+`transfer_to_owner` — a cold hand-off of the live call to `TRANSFER_TO_PHONE_NUMBER`, offered to the
+model only when `TRANSFER_ENABLED` is on, gating both the tool and the prompt rule that tells the
+model when to use it (`transferSection` in `systemPrompt.ts`). Each direction supplies its own
+`onTransferred` hook — outbound (`callSessionAdapter.ts`) moves the task to `transferred`; inbound
+(`inbound/tools.ts`) texts the owner — so the telephony layer stays ignorant of tasks. On
+`openai-live`, whose voice layer has no tools, the voice-layer delegation guidance also gains one line
+saying that connecting the caller is its backend's job, again only when the flag is on.
+
+`<Connect><Stream>` is terminal TwiML: the Media Streams WebSocket *is* the call, so there's no
+TwiML continuation inside the call to `<Dial>` into. A transfer has to be a REST redirect of the
+live call instead — `client.calls(sid).update({ twiml })` — the same call shape `hangUp()` already
+uses. `TwilioProvider.transferCall()` builds `<Dial timeout="20" answerOnBridge="true" action=".../transfer-callback?callId=…"><Number>{to}</Number></Dial>`. Nothing follows the `<Dial>` in that
+TwiML: with an `action` URL, Twilio never reaches verbs after it and instead runs whatever TwiML the
+callback returns, so the fallback line has to live there rather than after the `<Dial>`.
+
+**The callback** (`POST /telephony/twilio/transfer-callback`, `src/server.ts`) is where the dial's
+outcome actually arrives — after the `<Dial>` ends, via `DialCallStatus`. It maps that to a
+`transfer_result` (`answered | no_answer | busy | failed`), records it on `call_attempts` for
+outbound calls (inbound calls have no `call_attempts` row, so it just logs), and returns
+`<Hangup/>` when answered or the XML-escaped fallback `<Say>{TRANSFER_FALLBACK_MESSAGE}</Say><Hangup/>`
+otherwise. This is also why there's no `transfer_completed`/`transfer_failed` arm on
+`TelephonyEvent`: the dial result is known only once the bridged call ends, by which point the
+`CallSession` that placed the transfer is already gone and has no listener left to notify. A failed
+*redirect* (the REST call itself, not the eventual dial outcome) is a different, immediate failure —
+`transferCall()` throws, and the tool returns `transfer_failed` to the model directly.
+
+`transferCall()` stops any running recording before redirecting: the callee agreed to a recorded
+call with Banjo, not to recording the principal's bridged conversation, and stopping it is also the
+consent boundary — recording never continues into a call leg the disclosure rule never covered.
+
+The call is forgotten (`forgetCall`) only *after* the REST redirect succeeds, unlike `hangUp()`,
+which forgets in a `finally`. Two things ride on that: `isAnyCallActive()` has to drop back to false
+so the inbound line doesn't stay wedged, and — the sharper reason — `CallSession`'s teardown
+`hangUp()` becomes a no-op via `recentlyEnded` once the call is forgotten. Without that, a teardown
+that runs before Twilio's stream `stop` event arrives would hang up the call Banjo just bridged to
+the principal. If the redirect fails, the call is *not* forgotten: it's still Banjo's to keep
+talking on, and the stream's `stop`/close handlers forget it whenever it genuinely ends either way.
+
+**Timing.** The tool is the one live-call handler not wrapped in `runToolSafely`'s `TOOL_TIMEOUT_MS`.
+That timeout can't cancel anything, and once the redirect is sent the call may already be with the
+principal: an 8s timeout firing mid-redirect told the model the transfer failed (so it escalated, or
+hung up a call being bridged), and the handler returning early let `end()` mark the task `failed`
+before the redirect landed. Instead the tool declares `VoiceTool.handlerBudgetMs`
+(`TRANSFER_HANDLER_BUDGET_MS`: the playback wait, plus the SDK's 30s timeout for each of
+`transferCall()`'s two REST calls, plus one `TOOL_TIMEOUT_MS` to record it — ~74s, a ceiling for a
+stuck call, not a normal duration). `CallSession` re-arms its tool-pending watchdog with that budget
+after the `endsCall` turn_end wait, and `toolBudgetMs` gives `end()`/`fail()` the same allowance, so
+a stream `stop` that arrives before Twilio's REST response still waits for the handler to record
+`transferred`. Every other tool's budget is unchanged. One side effect for every tool: the watchdog's
+first arm now clears any timer already running, and the watchdog records the tool call that armed it.
+Before, a second concurrent tool call left the first call's timer running unreferenced, and whichever
+call finished first cleared the watchdog. Now the newer call's watchdog replaces it, and only that
+owner clears it or sets the call back to `active` when it finishes. While a call-ending tool runs, no
+other tool call re-arms it (see below). Benign: only concurrent tool calls see any of this.
+
+**Nothing else can end the call while a call-ending tool runs.** While any `endsCall` tool's handler is
+in flight (`CallSession.callEndingToolCallId`), `CallSession` refuses a new *call-ending* tool call with
+`{ ok: false, error: 'call_ending' }` without running it, and the silence watchdog neither arms nor
+nudges. Otherwise a nudged `end_call` accepted during a slow redirect could hang up the call
+mid-transfer. Non-ending tools still run: one OpenAI response can carry `end_call` and
+`confirm_appointment` together, and the booking must land (`end()` waits for it as for any in-flight
+handler). The tool-pending watchdog belongs to the call-ending tool for that time: no other tool call
+re-arms it, and a tool finishing mid-transfer neither clears it nor sets the call back to `active`.
+When the handler returns — including a `transfer_failed` with the call still Banjo's — all of this
+goes back to normal, so the model can then escalate or end the call as the prompt says.
+
+**Notification.** The outbound hook only records the outcome; `end()`'s `notifyIfTerminal` sends the
+one text when the stream stops, as for every other outcome. If recording it throws, the hook retries
+once and logs at error with the task id; if both fail, the task stays in progress and `end()` marks it
+`failed` — the text then says failed although the call was handed over.
+
+**An already-confirmed task.** A common case is a restaurant that books the table, then asks for a
+card to hold it, and Banjo transfers. The task is already `confirmed` (terminal), so `transitionTask`
+refuses the `transferred` write and the task keeps saying `confirmed` — which is still true. The
+transfer shows only on the call attempt: `call_attempts.transfer_result`, written by the callback.
+The owner's text is the confirmation; nothing tells them the call was handed to them afterwards other
+than their phone ringing.
+
 ---
 
 ## Data model (`src/contacts/`, `src/tasks/`)
@@ -280,8 +361,9 @@ _(none currently open — #12 below was the one item here, now fixed)_
 18. **[OPEN]** Error classification unimplemented. Like the other three adapters, every GPT-Live error is emitted `retryable: true` — load-bearing on the teardown path since #14 — and GPT-Live's error codes are not yet known.
 19. **[OPEN]** Cost has a different shape: $0.05/min for the voice layer plus backend model tokens, billed separately, vs `gpt-realtime`'s audio-token pricing. The adapter logs `session.usage.updated`'s cumulative `usage.seconds`; compare real call spend before any default switch.
 20. **[OPEN]** Speak-then-verify has matched real audio once — a voicemail call recorded `voicemail_left` after its output transcript matched the intended message — but one pass is not a track record. `sayVerbatim` uses `session.instructions.append` (500-token cap; `session.commentary.append` is the untried alternative), and `src/voice/verbatimMatch.ts` is deliberately strict — a contraction the model expands, or a number it spells out ("twenty"), fails the match and routes a voicemail to `escalated`. That false-negative direction is intentional (a false match would re-open #13); watch the real escalation rate. The prompt split is untuned too: the voice layer has no candidate windows or timezone contract, so every time check is a delegation round-trip.
-21. **[OPEN, seen live — blocks conversation mode on `openai-live`]** The voice layer does not end free-form conversations. (a) On the 7.5-minute call, when the callee said "we should hang up now… Bye", the model did not delegate `end_conversation_call`; the callee hung up and the task landed in `failed` (reason `stop`) rather than `conversation_completed`. Its three delegations all came back as text (`response.output_text.delta`), with no function call. (b) Reproduced on a ~5.5-minute call whose goal said explicitly to end the call itself after a goodbye: the model said goodbye three times but made **zero** delegations the entire call, so again the callee hung up into `failed`. By contrast, the smoke test did delegate `end_call` and a voicemail call delegated `leave_voicemail_and_end_call` correctly — the gap is specifically ending a free-form conversation. (c) On that voicemail call the voice layer said its reasoning aloud to the machine ("Okay, that's a voicemail greeting, so I should leave a message now") before delegating; the frontend prompt should forbid narrating decisions. (d) The 7.5-minute call's callee twice said the assistant "cut out"; none were reported on the later 5.5-minute call. **Mitigation applied:** the voice-layer prompt (`DELEGATION_GUIDANCE` in `src/voice/systemPrompt.ts`, plus the conversation-mode guidance in `buildCallFrontendPrompt`) now says outright that saying goodbye does not hang up, that ending the call must be delegated immediately after the goodbye, and that reasoning must never be said aloud. The base prompt other providers receive is unchanged. If a live call still stays open through goodbyes, the fallback is to record a callee hang-up after a normal conversation as `conversation_completed` rather than `failed`. **First live result (2026-09-12, ~1.5-minute call):** the model delegated `end_conversation_call` right after its goodbye — the hang-up request went out ~4 seconds after "Bye!" and the task landed in `conversation_completed` with a model-written summary. A second call (~2 minutes, a back-and-forth conversation) did the same — hang-up ~3 seconds after the callee's "Bye", outcome `conversation_completed` — though the voice layer said "Great, ending the call now" aloud as it hung up, a small slip against the no-narration rule. A third (a ~40-second lullaby call) also hung up by itself, with no narration. Keep watching on later calls.
+21. **[OPEN, seen live — blocks conversation mode on `openai-live`]** The voice layer does not end free-form conversations. (a) On the 7.5-minute call, when the callee said "we should hang up now… Bye", the model did not delegate `end_conversation_call`; the callee hung up and the task landed in `failed` (reason `stop`) rather than `conversation_completed`. Its three delegations all came back as text (`response.output_text.delta`), with no function call. (b) Reproduced on a ~5.5-minute call whose goal said explicitly to end the call itself after a goodbye: the model said goodbye three times but made **zero** delegations the entire call, so again the callee hung up into `failed`. By contrast, the smoke test did delegate `end_call` and a voicemail call delegated `leave_voicemail_and_end_call` correctly — the gap is specifically ending a free-form conversation. (c) On that voicemail call the voice layer said its reasoning aloud to the machine ("Okay, that's a voicemail greeting, so I should leave a message now") before delegating; the frontend prompt should forbid narrating decisions. (d) The 7.5-minute call's callee twice said the assistant "cut out"; none were reported on the later 5.5-minute call. **Mitigation applied:** the voice-layer prompt (`delegationGuidance()` in `src/voice/systemPrompt.ts`, plus the conversation-mode guidance in `buildCallFrontendPrompt`) now says outright that saying goodbye does not hang up, that ending the call must be delegated immediately after the goodbye, and that reasoning must never be said aloud. The base prompt other providers receive is unchanged. If a live call still stays open through goodbyes, the fallback is to record a callee hang-up after a normal conversation as `conversation_completed` rather than `failed`. **First live result (2026-09-12, ~1.5-minute call):** the model delegated `end_conversation_call` right after its goodbye — the hang-up request went out ~4 seconds after "Bye!" and the task landed in `conversation_completed` with a model-written summary. A second call (~2 minutes, a back-and-forth conversation) did the same — hang-up ~3 seconds after the callee's "Bye", outcome `conversation_completed` — though the voice layer said "Great, ending the call now" aloud as it hung up, a small slip against the no-narration rule. A third (a ~40-second lullaby call) also hung up by itself, with no narration. Keep watching on later calls.
 22. **[OPEN, seen live]** The voicemail path can hang up on a live person. On a call where Twilio AMD reported `machine_start` after a voicemail greeting, the model delegated `leave_voicemail_and_end_call`. While the forced voicemail message was playing, the callee's own voice was transcribed ("Hello", then "I don't know" — a live reply to the message's question), but `CallSession` still finished the message, recorded `voicemail_left`, and hung up. Speak-then-verify checks what the model said, not whether a human answered mid-message. A fix would abandon the verbatim/hang-up sequence when a user transcript arrives during the message and fall back to a normal conversation. The tool flow is provider-agnostic, so check the Realtime path too. A later scheduled conversation-mode call hit the reverse gap: on reaching voicemail, the model spoke its message directly instead of delegating `leave_voicemail_and_end_call`, so nothing verified delivery, and the task landed in `failed` (reason `stop`) when the voicemail system hung up.
+24. **[OPEN, accepted]** A tool result can make the model speak during a transfer. The `call_ending` refusal (see Call transfer above) goes through the provider's `sendToolResult`, which on OpenAI Realtime always follows the result with `response.create` (`src/voice/providers/openai.ts`), so a refusal during a slow redirect can prompt the model to say something on a call that may be moments from being bridged. The same holds for a non-ending tool (e.g. `confirm_appointment`) that is still allowed to run during a transfer: its result also sends `response.create` when it returns. Nothing hangs up — the refusal only stops a second call-ending tool. Stopping the speech needs a provider-level option to deliver a tool result without starting a new response.
 
 ### Removed (was #3: LiveKit telephony provider)
 

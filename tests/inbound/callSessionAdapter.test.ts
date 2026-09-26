@@ -120,6 +120,23 @@ describe('buildInboundCallSessionOptions', () => {
   });
 });
 
+describe('transfer_to_owner on inbound calls (#7)', () => {
+  it('is offered only when TRANSFER_ENABLED is on', async () => {
+    const { config } = await import('../../src/config/index.js');
+    const opts = () =>
+      buildOpts({ inboundCall: fakeInboundCall, callerPhoneNumber: '+15555550100', telephony: fakeTelephony, calendar: fakeCalendar, systemPrompt: 'x' });
+    try {
+      config.TRANSFER_ENABLED = false;
+      expect(opts().tools.map((t) => t.name)).not.toContain('transfer_to_owner');
+      config.TRANSFER_ENABLED = true;
+      config.TRANSFER_TO_PHONE_NUMBER = '+15557654321';
+      expect(opts().tools.map((t) => t.name)).toContain('transfer_to_owner');
+    } finally {
+      config.TRANSFER_ENABLED = false;
+    }
+  });
+});
+
 describe('buildInboundCallSessionOptions: onTranscript (#6)', () => {
   it('saves the line against the inbound call row, not the Twilio CallSid', async () => {
     const turn = { seq: 1, role: 'user' as const, text: 'Hello?', quality: 'ok' as const, voiceProvider: 'openai', spokenAt: new Date() };
