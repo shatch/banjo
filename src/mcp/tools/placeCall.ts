@@ -103,9 +103,14 @@ export async function placeCallHandler(input: z.infer<typeof placeCallInputSchem
 
   // At most MAX_CALLS_PER_NUMBER_PER_DAY calls to one number in any 24 hours,
   // counting calls already queued to dial (tasks/callCap.ts). Refused before
-  // anything is created; a scheduled call is checked again when it comes due.
-  const cap = await checkCallCap(input.contactId, new Date(), { includeQueued: true });
-  if (!cap.allowed) throw new Error(describeCallCapRefusal(cap));
+  // anything is created. A call scheduled for later isn't checked here: today's
+  // calls may have left the window by then, so the orchestrator checks it when
+  // it comes due instead.
+  const callsNow = !scheduledFor || scheduledFor.getTime() <= Date.now();
+  if (callsNow) {
+    const cap = await checkCallCap(input.contactId, new Date(), { includeQueued: true });
+    if (!cap.allowed) throw new Error(describeCallCapRefusal(cap));
+  }
 
   const task = await createTask({
     contactId: input.contactId,

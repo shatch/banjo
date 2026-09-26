@@ -34,14 +34,15 @@ Steve, in conversation with Claude: "Schedule a haircut with Clauda"
   │
   └─ PHONE path (delegated to Banjo):
         Claude calls place_call(contactId, taskDescription, constraints)
-        → Banjo: per-number call cap (src/tasks/callCap.ts) — refuse if this number already had
-          MAX_CALLS_PER_NUMBER_PER_DAY calls (default 3) in the last 24 hours, counting queued ones
+        → Banjo: per-number call cap (src/tasks/callCap.ts) — for a call now, refuse if this number already
+          had MAX_CALLS_PER_NUMBER_PER_DAY calls (default 3) in the last 24 hours, counting queued ones
+          (a call scheduled for later is checked when it comes due instead)
         → Banjo: createTask (status: pending) → returns { taskId, ackMessage } immediately
         → Claude tells Steve: "Started calling Clauda's Salon, I'll let you know how it goes."
         → [async, in Banjo's orchestrator — src/tasks/orchestrator.ts]
            checking_availability (query Steve's Google Calendar → candidateWindows)
-           → call cap re-checked under a per-contact lock (a scheduled call that came due over the
-             cap → failed, "Call limit reached", no dial)
+           → call cap checked (before the calendar lookup, then again under a per-contact lock right
+             before dialing — over the cap → failed, "Call limit reached", no dial)
            → calling (build call system prompt, TelephonyProvider.originateCall() — Twilio outbound)
            → negotiating (call connects → CallSession pipes audio between TelephonyProvider ⇄ VoiceAIProvider)
               ├─ tool: check_my_availability  → live re-check if the offered time is outside candidateWindows
@@ -89,18 +90,32 @@ The `CallSession` is the only component that touches both a `TelephonyProvider` 
 
 At most `MAX_CALLS_PER_NUMBER_PER_DAY` (default 3) outbound calls to one phone number in any rolling 24
 hours, with no override. The rule came from live testing on 2026-09-25, when five test calls went to one
-friend in a single evening. `contacts.phone_number` is unique, so the cap counts per contact
-(`call_attempts` joined to `tasks`). It's enforced in two places:
+friend in a single evening. The cap counts per contact (`call_attempts` joined to `tasks`). That equals
+per number because `addContact` stores every number normalized to E.164 (libphonenumber, the same
+normalizer Google Contacts sync uses) and `contacts.phone_number` is unique. Without normalization,
+"+14155551234" and "415-555-1234" would be two contacts, each with its own calls.
 
-- **`place_call`** checks it before creating anything. That count also includes calls due and about to
-  dial, so a burst of requests can't queue up past the cap.
-- **The orchestrator** checks it again right before dialing, because a call scheduled earlier can come due
-  after other calls went out. The check and the call-attempt insert run under a per-contact lock, so two
-  due calls can't both pass. That lock is per process; see #64 for the multi-process case.
+It's enforced in two places:
 
-The refusal says when the next call becomes possible. The window is rolling, not per calendar day,
-so a call at 11:59pm and another at 12:01am count against the same window. Inbound calls don't count
-toward the cap, and neither does the transfer leg to the principal. Banjo didn't originate either one.
+- **`place_call`**, for a call that should start now. It checks before creating anything, and it also
+  counts calls that are due and about to dial, so a burst of requests can't queue past the cap. A call
+  scheduled for later isn't checked here: by the time it's due, today's calls may have left the
+  window.
+- **The orchestrator**, for every call, right before dialing. It does one quick check before the
+  calendar lookup, and the check that counts runs under a per-contact lock spanning the check, the move
+  to `calling`, and the call-attempt insert. The lock is chained in-process and backed by a Postgres
+  advisory lock (`pg_advisory_xact_lock`), so two due calls can't both pass, even in separate processes
+  on the same database (e.g. `npm run test:call` alongside `npm run dev`). A call over the cap becomes
+  `failed` ("Call limit reached…") and the owner is notified. If inserting the call attempt fails,
+  the task is failed rather than left in `calling`.
+
+The refusal gives the time the next call fits: when enough counted calls have left the window. If queued
+calls alone fill the cap, it says so instead, because they haven't started yet.
+
+What counts: every call attempt Banjo inserts. That includes an attempt whose dial then failed (bad
+number, Twilio error), so a debugging session that burns three failed dials uses up the day's cap for
+that number. Inbound calls and the transfer leg to the principal don't count, since Banjo didn't
+originate them. The window is rolling, not per calendar day.
 
 ## Voice AI abstraction layer (`src/voice/`)
 

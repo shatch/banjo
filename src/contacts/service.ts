@@ -1,5 +1,6 @@
 import { eq, ilike, or } from 'drizzle-orm';
 import { db } from '../db/index.js';
+import { normalizePhoneNumber } from '../googleContacts/phoneNormalization.js';
 import { isPostgresUniqueViolation } from '../lib/postgresErrors.js';
 import { contacts, type Contact, type NewContact } from './schema.js';
 
@@ -13,6 +14,18 @@ const CONTACTS_UNIQUE_CONSTRAINTS = new Set(['contacts_phone_number_unique', 'co
  */
 export function isContactsUniqueViolation(err: unknown): boolean {
   return isPostgresUniqueViolation(err, CONTACTS_UNIQUE_CONSTRAINTS);
+}
+
+/**
+ * Every stored phone number is E.164, so one phone is one contact: the unique
+ * index can only catch a duplicate it can see, and the per-number call cap
+ * (tasks/callCap.ts) counts per contact. Without this, "+14155551234" and
+ * "415-555-1234" were two contacts, each with its own calls.
+ */
+function toStoredPhoneNumber(raw: string): string {
+  const normalized = normalizePhoneNumber(raw);
+  if (!normalized) throw new Error(`"${raw}" isn't a valid phone number — use E.164 format, e.g. "+14155551234"`);
+  return normalized;
 }
 
 export async function addContact(input: {
@@ -29,7 +42,7 @@ export async function addContact(input: {
     .insert(contacts)
     .values({
       displayName: input.displayName,
-      phoneNumber: input.phoneNumber,
+      phoneNumber: toStoredPhoneNumber(input.phoneNumber),
       category: input.category ?? 'other',
       notes: input.notes,
       bookingUrl: input.bookingUrl,
@@ -82,7 +95,9 @@ export async function getContact(id: string): Promise<Contact | undefined> {
 
 /** The dedupe/lookup key src/googleContacts/reconcile.ts and inbound caller-ID resolution rely on. */
 export async function getContactByPhoneNumber(phoneNumber: string): Promise<Contact | undefined> {
-  const [row] = await db.select().from(contacts).where(eq(contacts.phoneNumber, phoneNumber));
+  const normalized = normalizePhoneNumber(phoneNumber);
+  if (!normalized) return undefined;
+  const [row] = await db.select().from(contacts).where(eq(contacts.phoneNumber, normalized));
   return row;
 }
 

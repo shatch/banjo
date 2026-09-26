@@ -96,6 +96,14 @@ async function runTask(taskId: string): Promise<void> {
     if (failed.status === 'failed') await notifyTaskOutcome(task.id);
     return;
   }
+  // An early, unlocked look at the call cap, so a call that can't be placed
+  // fails before spending a calendar lookup. The check that counts is the
+  // locked one below.
+  const earlyCap = await checkCallCap(task.contactId, new Date());
+  if (!earlyCap.allowed) {
+    await failOverCallCap(task.id, describeCallCapRefusal(earlyCap));
+    return;
+  }
   const candidateWindows = await calendar.computeCandidateWindows({
     dateWindows,
     durationMinutes: task.constraints.durationMinutes ?? 30,
@@ -109,11 +117,24 @@ async function runTask(taskId: string): Promise<void> {
     if (!cap.allowed) return { kind: 'refused', reason: describeCallCapRefusal(cap) } as const;
     const calling = await transitionTask(task.id, 'calling', { candidateWindows });
     if (calling.status !== 'calling') return { kind: 'stopped', status: calling.status } as const;
-    return { kind: 'dialing', callAttempt: await createCallAttempt(task.id) } as const;
+    try {
+      return { kind: 'dialing', callAttempt: await createCallAttempt(task.id) } as const;
+    } catch (err) {
+      // Otherwise the task sits in 'calling' with no call attempt forever: the
+      // poller doesn't resume 'calling', and the stale-call sweep skips a task
+      // with no attempt.
+      logger.error({ err, taskId }, 'could not record the call attempt — failing the task instead of dialing');
+      return { kind: 'unrecorded' } as const;
+    }
   });
   if (dial.kind === 'refused') {
-    logger.warn({ taskId, contactId: task.contactId }, 'per-number call cap reached — not placing the call');
-    const failed = await transitionTask(task.id, 'failed', { outcome: { kind: 'failed', reason: dial.reason } });
+    await failOverCallCap(task.id, dial.reason);
+    return;
+  }
+  if (dial.kind === 'unrecorded') {
+    const failed = await transitionTask(task.id, 'failed', {
+      outcome: { kind: 'failed', reason: 'The call could not be started: recording the call attempt failed. No call was placed.' },
+    });
     if (failed.status === 'failed') await notifyTaskOutcome(task.id);
     return;
   }
@@ -151,6 +172,12 @@ async function runTask(taskId: string): Promise<void> {
     unregisterLiveCall(task.id);
     throw err;
   }
+}
+
+async function failOverCallCap(taskId: string, reason: string): Promise<void> {
+  logger.warn({ taskId }, 'per-number call cap reached — not placing the call');
+  const failed = await transitionTask(taskId, 'failed', { outcome: { kind: 'failed', reason } });
+  if (failed.status === 'failed') await notifyTaskOutcome(taskId);
 }
 
 /**

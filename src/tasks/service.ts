@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, inArray, isNull, lte, min, or } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import {
@@ -193,20 +193,34 @@ export function isTaskDue(task: Pick<Task, 'scheduledFor'>, now: Date = new Date
 }
 
 /**
- * Outbound calls already placed to a contact since `since`, and when the
- * oldest of them started — for the per-number call cap (./callCap.ts). A
- * contact's phone number is unique, so per contact is per number.
+ * Start times of the outbound calls placed to a contact since `since`,
+ * oldest first — for the per-number call cap (./callCap.ts), which needs to
+ * know when enough of them leave the window. Phone numbers are stored in
+ * E.164 and unique (contacts/service.ts's addContact), so per contact is
+ * per number.
  */
-export async function callsPlacedToContactSince(
-  contactId: string,
-  since: Date,
-): Promise<{ count: number; oldestStartedAt?: Date }> {
-  const [row] = await db
-    .select({ count: count(), oldest: min(callAttempts.startedAt) })
+export async function callsPlacedToContactSince(contactId: string, since: Date): Promise<Date[]> {
+  const rows = await db
+    .select({ startedAt: callAttempts.startedAt })
     .from(callAttempts)
     .innerJoin(tasks, eq(callAttempts.taskId, tasks.id))
-    .where(and(eq(tasks.contactId, contactId), gte(callAttempts.startedAt, since)));
-  return { count: row?.count ?? 0, oldestStartedAt: row?.oldest ?? undefined };
+    .where(and(eq(tasks.contactId, contactId), gte(callAttempts.startedAt, since)))
+    .orderBy(callAttempts.startedAt);
+  return rows.map((row) => row.startedAt);
+}
+
+/**
+ * Runs `work` holding a Postgres advisory lock for this contact, so dials to
+ * one number are serialized across every process on this database — e.g.
+ * `npm run test:call` alongside `npm run dev` — not just within one. The lock
+ * lives for the transaction; `work` itself may use other connections, and its
+ * writes commit on their own before the lock is released.
+ */
+export async function withContactAdvisoryLock<T>(contactId: string, work: () => Promise<T>): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`call-cap:${contactId}`}))`);
+    return work();
+  });
 }
 
 /** Phone tasks for a contact that are due and about to dial but haven't yet — counted by place_call's cap check. */

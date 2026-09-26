@@ -110,7 +110,7 @@ describe('counting calls to a contact, for the per-number call cap', () => {
   const now = new Date('2026-09-26T20:00:00.000Z');
   const hoursAgo = (h: number) => new Date(now.getTime() - h * 60 * 60 * 1000);
 
-  it('counts call attempts to that contact since a time, and reports the oldest', async () => {
+  it('lists the start times of call attempts to that contact since a time, oldest first', async () => {
     const [jess] = await db.insert(contacts).values({ displayName: 'Jess', phoneNumber: '+15551230010' }).returning();
     const [other] = await db.insert(contacts).values({ displayName: 'Other', phoneNumber: '+15551230011' }).returning();
     const call = async (contactId: string, startedAt: Date) => {
@@ -123,9 +123,8 @@ describe('counting calls to a contact, for the per-number call cap', () => {
     await call(other.id, hoursAgo(1)); // someone else
 
     const recent = await service.callsPlacedToContactSince(jess.id, hoursAgo(24));
-    expect(recent.count).toBe(2);
-    expect(recent.oldestStartedAt?.toISOString()).toBe(hoursAgo(20).toISOString());
-    expect((await service.callsPlacedToContactSince(other.id, hoursAgo(24))).count).toBe(1);
+    expect(recent.map((d) => d.toISOString())).toEqual([hoursAgo(20).toISOString(), hoursAgo(2).toISOString()]); // oldest first
+    expect(await service.callsPlacedToContactSince(other.id, hoursAgo(24))).toHaveLength(1);
   });
 
   it('counts queued calls that are due now and not yet dialed, but not future or finished ones', async () => {
@@ -140,5 +139,30 @@ describe('counting calls to a contact, for the per-number call cap', () => {
     await service.transitionTask(done.id, 'failed', { outcome: { kind: 'failed', reason: 'x' } });
 
     expect(await service.dueQueuedCallsForContact(jess.id, now)).toBe(2);
+  });
+});
+
+describe('withContactAdvisoryLock (per-number call cap across processes)', () => {
+  it('lets only one holder per contact run at a time, even from separate connections', async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const first = service.withContactAdvisoryLock('contact-a', async () => {
+      order.push('first start');
+      await new Promise<void>((r) => (release = r));
+      order.push('first end');
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const second = service.withContactAdvisoryLock('contact-a', async () => {
+      order.push('second');
+    });
+    const otherContact = service.withContactAdvisoryLock('contact-b', async () => {
+      order.push('other contact');
+    });
+    await otherContact;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(order).toEqual(['first start', 'other contact']);
+    release();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first start', 'other contact', 'first end', 'second']);
   });
 });

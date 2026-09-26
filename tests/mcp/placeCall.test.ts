@@ -9,7 +9,7 @@ const { createTask, triggerOrchestration } = vi.hoisted(() => ({
 vi.mock('../../src/tasks/service.js', () => ({ createTask }));
 vi.mock('../../src/tasks/orchestrator.js', () => ({ triggerOrchestration }));
 const { checkCallCap } = vi.hoisted(() => ({
-  checkCallCap: vi.fn(async () => ({ allowed: true, count: 0 }) as { allowed: boolean; count: number; nextAllowedAt?: Date }),
+  checkCallCap: vi.fn(async () => ({ allowed: true, placed: 0, queued: 0 }) as { allowed: boolean; placed: number; queued: number; nextAllowedAt?: Date }),
 }));
 vi.mock('../../src/tasks/callCap.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/tasks/callCap.js')>()),
@@ -124,19 +124,18 @@ describe('mcp: place_call per-number call cap', () => {
   });
 
   it('refuses a call over the cap without creating a task, and says when the next call is allowed', async () => {
-    checkCallCap.mockResolvedValueOnce({ allowed: false, count: 3, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
+    checkCallCap.mockResolvedValueOnce({ allowed: false, placed: 3, queued: 0, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
     await expect(placeCallHandler({ contactId: CONTACT_ID, taskDescription: 'Call again' })).rejects.toThrow(
-      /already called 3 times in the last 24 hours.*next call allowed/i,
+      /call limit reached.*next call allowed/i,
     );
     expect(createTask).not.toHaveBeenCalled();
     expect(triggerOrchestration).not.toHaveBeenCalled();
   });
 
-  it('checks the cap for a scheduled call too', async () => {
-    checkCallCap.mockResolvedValueOnce({ allowed: false, count: 3, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
-    await expect(
-      placeCallHandler({ contactId: CONTACT_ID, taskDescription: 'Call later', scheduledFor: '2099-09-13T09:00:00' }),
-    ).rejects.toThrow(/already called 3 times/i);
-    expect(createTask).not.toHaveBeenCalled();
+  it("leaves a call scheduled for later to the check at dial time — tonight's calls may be out of the window by then", async () => {
+    checkCallCap.mockResolvedValueOnce({ allowed: false, placed: 3, queued: 0, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
+    await placeCallHandler({ contactId: CONTACT_ID, taskDescription: 'Call later', scheduledFor: '2099-09-13T09:00:00' });
+    expect(checkCallCap).not.toHaveBeenCalled();
+    expect(createTask).toHaveBeenCalled();
   });
 });

@@ -17,25 +17,28 @@ vi.mock('../../src/tasks/service.js', () => ({
   isTaskDue: () => true,
   listNonTerminalTasks: vi.fn(async () => []),
   listStartableTasks: vi.fn(async () => []),
+  withContactAdvisoryLock: <T,>(_contactId: string, work: () => Promise<T>) => work(),
 }));
 vi.mock('../../src/contacts/service.js', () => ({ getContact }));
 vi.mock('../../src/session/callSession.js', () => ({ CallSession }));
 vi.mock('../../src/lib/logger.js', () => ({ logger }));
+const { computeCandidateWindows } = vi.hoisted(() => ({ computeCandidateWindows: vi.fn(async () => []) }));
 vi.mock('../../src/calendar/googleCalendarProvider.js', () => ({
   GoogleCalendarProvider: class {
-    computeCandidateWindows = vi.fn(async () => []);
+    computeCandidateWindows = computeCandidateWindows;
   },
 }));
 vi.mock('../../src/telephony/factory.js', () => ({ createTelephonyProvider: vi.fn() }));
 vi.mock('../../src/tasks/callSessionAdapter.js', () => ({ buildOutboundCallSessionOptions: vi.fn(), notifyTaskOutcome }));
 vi.mock('../../src/tasks/promptBuilder.js', () => ({ buildCallSystemPrompt: vi.fn(), buildCallFrontendPrompt: vi.fn() }));
+type CapResult = { allowed: boolean; placed: number; queued: number; nextAllowedAt?: Date };
 const { checkCallCap } = vi.hoisted(() => ({
-  checkCallCap: vi.fn(async () => ({ allowed: true, count: 0 }) as { allowed: boolean; count: number; nextAllowedAt?: Date }),
+  checkCallCap: vi.fn(async (): Promise<CapResult> => ({ allowed: true, placed: 0, queued: 0 })),
 }));
+// The real per-contact lock; only the count is faked.
 vi.mock('../../src/tasks/callCap.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/tasks/callCap.js')>()),
   checkCallCap,
-  withContactDialLock: <T,>(_contactId: string, work: () => Promise<T>) => work(),
 }));
 
 const { clipWindowsToFuture, triggerOrchestration } = await import('../../src/tasks/orchestrator.js');
@@ -126,7 +129,7 @@ describe('per-number call cap at dial time', () => {
     getTask.mockResolvedValue({ id: 'task-cap', channel: 'phone', status: 'pending', contactId: 'contact-1', constraints: {} });
     getContact.mockResolvedValue({ id: 'contact-1' });
     transitionTask.mockImplementation(async (id: string, status: string) => ({ id, status }));
-    checkCallCap.mockResolvedValueOnce({ allowed: false, count: 3, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
+    checkCallCap.mockResolvedValue({ allowed: false, placed: 3, queued: 0, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
 
     triggerOrchestration('task-cap');
     await vi.waitFor(() => expect(notifyTaskOutcome).toHaveBeenCalledWith('task-cap'));
@@ -138,6 +141,53 @@ describe('per-number call cap at dial time', () => {
       expect.objectContaining({ outcome: expect.objectContaining({ kind: 'failed', reason: expect.stringMatching(/call limit/i) }) }),
     );
     expect(createCallAttempt).not.toHaveBeenCalled();
+    expect(CallSession).not.toHaveBeenCalled();
+    // Refused before spending a calendar lookup on a call that won't be made.
+    expect(computeCandidateWindows).not.toHaveBeenCalled();
+    checkCallCap.mockReset();
+    checkCallCap.mockResolvedValue({ allowed: true, placed: 0, queued: 0 });
+  });
+
+  it('lets only one of two due calls to the same number through when one slot is left', async () => {
+    // Stateful: the count is what has been dialed so far, and dialing takes a
+    // moment — without the per-contact lock both runs would see 2 and dial.
+    let placed = 2;
+    checkCallCap.mockImplementation(async () => ({ allowed: placed < 3, placed, queued: 0 }));
+    createCallAttempt.mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      placed += 1;
+      return { id: `attempt-${placed}` };
+    });
+    getTask.mockImplementation(async (id: string) => ({ id, channel: 'phone', status: 'pending', contactId: 'contact-1', constraints: {} }));
+    getContact.mockResolvedValue({ id: 'contact-1' });
+    transitionTask.mockImplementation(async (id: string, status: string) => ({ id, status }));
+    CallSession.mockImplementation(function () {
+      return { start: async () => { throw new Error('stop here'); } };
+    });
+
+    triggerOrchestration('due-a');
+    triggerOrchestration('due-b');
+    await vi.waitFor(() => expect(notifyTaskOutcome).toHaveBeenCalledTimes(1));
+
+    expect(createCallAttempt).toHaveBeenCalledTimes(1);
+    expect(transitionTask).toHaveBeenCalledWith(expect.any(String), 'failed', expect.objectContaining({ outcome: expect.objectContaining({ reason: expect.stringMatching(/call limit/i) }) }));
+    checkCallCap.mockReset();
+    checkCallCap.mockResolvedValue({ allowed: true, placed: 0, queued: 0 });
+    createCallAttempt.mockReset();
+  });
+});
+
+describe('recording the call attempt fails after the task moved to calling', () => {
+  it('fails the task instead of leaving it stuck in calling with no attempt', async () => {
+    getTask.mockResolvedValue({ id: 'task-orphan', channel: 'phone', status: 'pending', contactId: 'contact-2', constraints: {} });
+    getContact.mockResolvedValue({ id: 'contact-2' });
+    transitionTask.mockImplementation(async (id: string, status: string) => ({ id, status }));
+    createCallAttempt.mockRejectedValueOnce(new Error('db blip'));
+
+    triggerOrchestration('task-orphan');
+    await vi.waitFor(() => expect(notifyTaskOutcome).toHaveBeenCalledWith('task-orphan'));
+
+    expect(transitionTask).toHaveBeenCalledWith('task-orphan', 'failed', expect.objectContaining({ outcome: expect.objectContaining({ kind: 'failed' }) }));
     expect(CallSession).not.toHaveBeenCalled();
   });
 });

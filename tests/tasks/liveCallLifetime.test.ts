@@ -26,7 +26,8 @@ vi.mock('../../src/tasks/service.js', () => ({
   listNonTerminalTasks: vi.fn(async () => []),
   latestCallAttemptFor: vi.fn(async () => undefined),
   // Under the per-number call cap, so the run gets as far as dialing.
-  callsPlacedToContactSince: vi.fn(async () => ({ count: 0 })),
+  callsPlacedToContactSince: vi.fn(async () => []),
+  withContactAdvisoryLock: <T,>(_contactId: string, work: () => Promise<T>) => work(),
   dueQueuedCallsForContact: vi.fn(async () => 0),
   isTerminalStatus: (status: string) => !['pending', 'checking_availability', 'calling', 'negotiating'].includes(status),
 }));

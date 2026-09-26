@@ -89,3 +89,20 @@ describe('findContact', () => {
     expect(result.alternates).toEqual([]);
   });
 });
+
+describe('phone numbers are stored in E.164, so one number is one contact (per-number call cap)', () => {
+  it('normalizes a number on the way in', async () => {
+    const created = await addContact({ displayName: 'Formatted', phoneNumber: '(555) 123-4599' });
+    expect(created.phoneNumber).toBe('+15551234599');
+  });
+
+  it('treats the same number in another format as a duplicate, not a new contact', async () => {
+    await addContact({ displayName: 'First', phoneNumber: '+15551234598' });
+    await expect(addContact({ displayName: 'Again', phoneNumber: '555-123-4598' })).rejects.toThrow();
+    expect(await getContactByPhoneNumber('(555) 123-4598')).toMatchObject({ displayName: 'First' });
+  });
+
+  it('refuses something that is not a phone number', async () => {
+    await expect(addContact({ displayName: 'Nope', phoneNumber: 'not a number' })).rejects.toThrow(/phone number/i);
+  });
+});
