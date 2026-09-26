@@ -29,6 +29,14 @@ vi.mock('../../src/calendar/googleCalendarProvider.js', () => ({
 vi.mock('../../src/telephony/factory.js', () => ({ createTelephonyProvider: vi.fn() }));
 vi.mock('../../src/tasks/callSessionAdapter.js', () => ({ buildOutboundCallSessionOptions: vi.fn(), notifyTaskOutcome }));
 vi.mock('../../src/tasks/promptBuilder.js', () => ({ buildCallSystemPrompt: vi.fn(), buildCallFrontendPrompt: vi.fn() }));
+const { checkCallCap } = vi.hoisted(() => ({
+  checkCallCap: vi.fn(async () => ({ allowed: true, count: 0 }) as { allowed: boolean; count: number; nextAllowedAt?: Date }),
+}));
+vi.mock('../../src/tasks/callCap.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/tasks/callCap.js')>()),
+  checkCallCap,
+  withContactDialLock: <T,>(_contactId: string, work: () => Promise<T>) => work(),
+}));
 
 const { clipWindowsToFuture, triggerOrchestration } = await import('../../src/tasks/orchestrator.js');
 
@@ -105,6 +113,29 @@ describe('a task whose requested times have all passed (#3)', () => {
       'task-3',
       'failed',
       expect.objectContaining({ outcome: expect.objectContaining({ kind: 'failed', reason: expect.stringMatching(/already passed/) }) }),
+    );
+    expect(createCallAttempt).not.toHaveBeenCalled();
+    expect(CallSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('per-number call cap at dial time', () => {
+  // place_call checks the cap when a call is requested; a call scheduled for
+  // later is checked again here, right before it would dial.
+  it('fails the task and notifies instead of dialing when the number is already at the cap', async () => {
+    getTask.mockResolvedValue({ id: 'task-cap', channel: 'phone', status: 'pending', contactId: 'contact-1', constraints: {} });
+    getContact.mockResolvedValue({ id: 'contact-1' });
+    transitionTask.mockImplementation(async (id: string, status: string) => ({ id, status }));
+    checkCallCap.mockResolvedValueOnce({ allowed: false, count: 3, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
+
+    triggerOrchestration('task-cap');
+    await vi.waitFor(() => expect(notifyTaskOutcome).toHaveBeenCalledWith('task-cap'));
+
+    expect(checkCallCap).toHaveBeenCalledWith('contact-1', expect.any(Date));
+    expect(transitionTask).toHaveBeenCalledWith(
+      'task-cap',
+      'failed',
+      expect.objectContaining({ outcome: expect.objectContaining({ kind: 'failed', reason: expect.stringMatching(/call limit/i) }) }),
     );
     expect(createCallAttempt).not.toHaveBeenCalled();
     expect(CallSession).not.toHaveBeenCalled();

@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, count, desc, eq, gte, inArray, isNull, lte, min, or } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import {
@@ -190,6 +190,39 @@ export async function listStartableTasks(now: Date = new Date()): Promise<Task[]
  */
 export function isTaskDue(task: Pick<Task, 'scheduledFor'>, now: Date = new Date()): boolean {
   return !task.scheduledFor || task.scheduledFor.getTime() <= now.getTime();
+}
+
+/**
+ * Outbound calls already placed to a contact since `since`, and when the
+ * oldest of them started — for the per-number call cap (./callCap.ts). A
+ * contact's phone number is unique, so per contact is per number.
+ */
+export async function callsPlacedToContactSince(
+  contactId: string,
+  since: Date,
+): Promise<{ count: number; oldestStartedAt?: Date }> {
+  const [row] = await db
+    .select({ count: count(), oldest: min(callAttempts.startedAt) })
+    .from(callAttempts)
+    .innerJoin(tasks, eq(callAttempts.taskId, tasks.id))
+    .where(and(eq(tasks.contactId, contactId), gte(callAttempts.startedAt, since)));
+  return { count: row?.count ?? 0, oldestStartedAt: row?.oldest ?? undefined };
+}
+
+/** Phone tasks for a contact that are due and about to dial but haven't yet — counted by place_call's cap check. */
+export async function dueQueuedCallsForContact(contactId: string, now: Date = new Date()): Promise<number> {
+  const [row] = await db
+    .select({ count: count() })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.contactId, contactId),
+        eq(tasks.channel, 'phone'),
+        inArray(tasks.status, ['pending', 'checking_availability']),
+        or(isNull(tasks.scheduledFor), lte(tasks.scheduledFor, now)),
+      ),
+    );
+  return row?.count ?? 0;
 }
 
 // --- Call attempts (phone path only) ---

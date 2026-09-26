@@ -34,10 +34,14 @@ Steve, in conversation with Claude: "Schedule a haircut with Clauda"
   │
   └─ PHONE path (delegated to Banjo):
         Claude calls place_call(contactId, taskDescription, constraints)
+        → Banjo: per-number call cap (src/tasks/callCap.ts) — refuse if this number already had
+          MAX_CALLS_PER_NUMBER_PER_DAY calls (default 3) in the last 24 hours, counting queued ones
         → Banjo: createTask (status: pending) → returns { taskId, ackMessage } immediately
         → Claude tells Steve: "Started calling Clauda's Salon, I'll let you know how it goes."
         → [async, in Banjo's orchestrator — src/tasks/orchestrator.ts]
            checking_availability (query Steve's Google Calendar → candidateWindows)
+           → call cap re-checked under a per-contact lock (a scheduled call that came due over the
+             cap → failed, "Call limit reached", no dial)
            → calling (build call system prompt, TelephonyProvider.originateCall() — Twilio outbound)
            → negotiating (call connects → CallSession pipes audio between TelephonyProvider ⇄ VoiceAIProvider)
               ├─ tool: check_my_availability  → live re-check if the offered time is outside candidateWindows
@@ -80,6 +84,23 @@ Call ends → CallSession.end() → VoiceAIProvider.disconnect() → notify Stev
 The `CallSession` is the only component that touches both a `TelephonyProvider` and a `VoiceAIProvider` at once — neither provider layer is aware the other exists. This is what makes both sides independently swappable.
 
 ---
+
+### Per-number call cap
+
+At most `MAX_CALLS_PER_NUMBER_PER_DAY` (default 3) outbound calls to one phone number in any rolling 24
+hours, with no override. The rule came from live testing on 2026-09-25, when five test calls went to one
+friend in a single evening. `contacts.phone_number` is unique, so the cap counts per contact
+(`call_attempts` joined to `tasks`). It's enforced in two places:
+
+- **`place_call`** checks it before creating anything. That count also includes calls due and about to
+  dial, so a burst of requests can't queue up past the cap.
+- **The orchestrator** checks it again right before dialing, because a call scheduled earlier can come due
+  after other calls went out. The check and the call-attempt insert run under a per-contact lock, so two
+  due calls can't both pass. That lock is per process; see #64 for the multi-process case.
+
+The refusal says when the next call becomes possible. The window is rolling, not per calendar day,
+so a call at 11:59pm and another at 12:01am count against the same window. Inbound calls don't count
+toward the cap, and neither does the transfer leg to the principal. Banjo didn't originate either one.
 
 ## Voice AI abstraction layer (`src/voice/`)
 

@@ -215,6 +215,13 @@ const envSchema = z
     // gets a warmer "welcome back" greeting. See src/inbound/callerContext.ts.
     FREQUENT_CONTACT_THRESHOLD: z.coerce.number().int().positive().default(3),
 
+    // Hard cap on outbound calls to one phone number in any rolling 24 hours.
+    // place_call refuses past it, and a scheduled call that would exceed it is
+    // failed instead of dialed (src/tasks/callCap.ts). An operator setting on
+    // purpose: nothing the model or an MCP client sends can raise it. Five
+    // test calls to one friend in one evening is how this came about.
+    MAX_CALLS_PER_NUMBER_PER_DAY: z.coerce.number().int().min(1).default(3),
+
     // Cold call transfer to the principal's phone (#7). Off by default: when
     // on, both the outbound and inbound tool lists gain transfer_to_owner and
     // the prompts gain the rule for when to use it (voice/systemPrompt.ts).

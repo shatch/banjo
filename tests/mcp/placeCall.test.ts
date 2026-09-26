@@ -8,6 +8,13 @@ const { createTask, triggerOrchestration } = vi.hoisted(() => ({
 }));
 vi.mock('../../src/tasks/service.js', () => ({ createTask }));
 vi.mock('../../src/tasks/orchestrator.js', () => ({ triggerOrchestration }));
+const { checkCallCap } = vi.hoisted(() => ({
+  checkCallCap: vi.fn(async () => ({ allowed: true, count: 0 }) as { allowed: boolean; count: number; nextAllowedAt?: Date }),
+}));
+vi.mock('../../src/tasks/callCap.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/tasks/callCap.js')>()),
+  checkCallCap,
+}));
 
 const { placeCallHandler, placeCallInputSchema } = await import('../../src/mcp/tools/placeCall.js');
 
@@ -102,5 +109,34 @@ describe('mcp: place_call scheduling', () => {
     );
     expect(createTask).not.toHaveBeenCalled();
     expect(triggerOrchestration).not.toHaveBeenCalled();
+  });
+});
+
+describe('mcp: place_call per-number call cap', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('checks the cap for this contact, counting queued calls, before creating anything', async () => {
+    await placeCallHandler({ contactId: CONTACT_ID, taskDescription: 'Call and chat' });
+    expect(checkCallCap).toHaveBeenCalledWith(CONTACT_ID, expect.any(Date), { includeQueued: true });
+    expect(createTask).toHaveBeenCalled();
+  });
+
+  it('refuses a call over the cap without creating a task, and says when the next call is allowed', async () => {
+    checkCallCap.mockResolvedValueOnce({ allowed: false, count: 3, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
+    await expect(placeCallHandler({ contactId: CONTACT_ID, taskDescription: 'Call again' })).rejects.toThrow(
+      /already called 3 times in the last 24 hours.*next call allowed/i,
+    );
+    expect(createTask).not.toHaveBeenCalled();
+    expect(triggerOrchestration).not.toHaveBeenCalled();
+  });
+
+  it('checks the cap for a scheduled call too', async () => {
+    checkCallCap.mockResolvedValueOnce({ allowed: false, count: 3, nextAllowedAt: new Date('2026-09-27T01:23:44.000Z') });
+    await expect(
+      placeCallHandler({ contactId: CONTACT_ID, taskDescription: 'Call later', scheduledFor: '2099-09-13T09:00:00' }),
+    ).rejects.toThrow(/already called 3 times/i);
+    expect(createTask).not.toHaveBeenCalled();
   });
 });
