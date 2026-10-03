@@ -86,6 +86,8 @@ export class ElevenLabsProvider implements VoiceAIProvider {
   readonly name = 'elevenlabs';
 
   private ws: WebSocket | undefined;
+  /** The socket disconnect() is closing: if it hasn't opened yet, `ws` reports the close as an error, which isn't one (#100). */
+  private closingWs: WebSocket | undefined;
   private emitter = new EventEmitter();
 
   connect(sessionConfig: VoiceAISessionConfig): Promise<void> {
@@ -147,8 +149,12 @@ export class ElevenLabsProvider implements VoiceAIProvider {
       });
 
       ws.on('error', (err: Error) => {
-        log.error({ err }, 'elevenlabs ws error');
-        this.emitEvent({ type: 'error', error: new VoiceAIError(err.message, true) });
+        if (ws === this.closingWs) {
+          log.debug({ err }, 'elevenlabs ws closed by disconnect() before it opened');
+        } else {
+          log.error({ err }, 'elevenlabs ws error');
+          this.emitEvent({ type: 'error', error: new VoiceAIError(err.message, true) });
+        }
         if (!settled) {
           settled = true;
           reject(err);
@@ -221,6 +227,7 @@ export class ElevenLabsProvider implements VoiceAIProvider {
         return;
       }
       ws.once('close', () => resolve());
+      this.closingWs = ws;
       ws.close(1000, 'client disconnect');
     });
     this.ws = undefined;

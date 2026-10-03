@@ -194,6 +194,8 @@ export class OpenAILiveProvider implements VoiceAIProvider {
   readonly emitsInterruptions = false;
 
   private ws: WebSocket | undefined;
+  /** The socket disconnect() is closing: if it hasn't opened yet, `ws` reports the close as an error, which isn't one (#100). */
+  private closingWs: WebSocket | undefined;
   private emitter = new EventEmitter();
   private pendingConnect: { resolve: () => void; reject: (err: Error) => void } | undefined;
   /** session.started received — no command other than session.start may be sent before it. */
@@ -313,8 +315,12 @@ export class OpenAILiveProvider implements VoiceAIProvider {
       });
 
       ws.on('error', (err: Error) => {
-        log.error({ err }, 'openai live ws error');
-        this.emitEvent({ type: 'error', error: new VoiceAIError(err.message, true) });
+        if (ws === this.closingWs) {
+          log.debug({ err }, 'openai live ws closed by disconnect() before it opened');
+        } else {
+          log.error({ err }, 'openai live ws error');
+          this.emitEvent({ type: 'error', error: new VoiceAIError(err.message, true) });
+        }
         this.settleConnect(err);
       });
 
@@ -420,6 +426,7 @@ export class OpenAILiveProvider implements VoiceAIProvider {
       // Best-effort graceful finalization; the socket closes right after
       // regardless, and nothing here depends on session.closed arriving.
       if (this.isStarted()) this.send({ type: 'session.close' });
+      this.closingWs = ws;
       ws.close(1000, 'client disconnect');
     });
     this.ws = undefined;

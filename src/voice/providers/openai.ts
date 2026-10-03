@@ -122,6 +122,8 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
   readonly name = 'openai';
 
   private ws: WebSocket | undefined;
+  /** The socket disconnect() is closing: if it hasn't opened yet, `ws` reports the close as an error, which isn't one (#100). */
+  private closingWs: WebSocket | undefined;
   private emitter = new EventEmitter();
   private pendingCalls = new Map<string, PendingFunctionCall>();
   /** Tracks function_call ids we've already emitted a tool_call for, so response.done doesn't double-emit. */
@@ -203,8 +205,12 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
       });
 
       ws.on('error', (err: Error) => {
-        log.error({ err }, 'openai realtime ws error');
-        this.emitEvent({ type: 'error', error: new VoiceAIError(err.message, true) });
+        if (ws === this.closingWs) {
+          log.debug({ err }, 'openai realtime ws closed by disconnect() before it opened');
+        } else {
+          log.error({ err }, 'openai realtime ws error');
+          this.emitEvent({ type: 'error', error: new VoiceAIError(err.message, true) });
+        }
         if (!settled) {
           settled = true;
           reject(err);
@@ -301,6 +307,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
         return;
       }
       ws.once('close', () => resolve());
+      this.closingWs = ws;
       ws.close(1000, 'client disconnect');
     });
     this.ws = undefined;

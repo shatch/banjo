@@ -31,6 +31,7 @@ vi.mock('../../src/voice/factory.js', () => ({
 }));
 
 const { CallSession } = await import('../../src/session/callSession.js');
+const { logger } = await import('../../src/lib/logger.js');
 
 function makeFakeTelephony() {
   const emitter = new EventEmitter();
@@ -2035,5 +2036,33 @@ describe('CallSession: call ends while the voice AI is still connecting (#79)', 
     );
     expect(fakeVoiceAI.disconnect.mock.calls.length).toBe(disconnectsBeforeConnect + 1);
     expect(options.onFailure).not.toHaveBeenCalled();
+  });
+
+  it('ignores Voice AI errors that arrive after the call has ended (#100)', async () => {
+    // Closing a socket that never opened makes the provider report an error
+    // after end() has run. The call is over, so it is neither a retryable
+    // hiccup to warn about nor a failure to record.
+    voiceAIEmitter.removeAllListeners('event');
+    const warn = vi.spyOn(logger, 'warn');
+    const telephony = makeFakeTelephony();
+    const options = makeFakeCallSessionOptions(telephony.provider);
+    const session = new CallSession(options);
+    await session.start();
+
+    telephony.emit({ callId: callAttempt.id, type: 'ended', reason: 'The call was not answered.' });
+    await vi.waitFor(() => expect(options.notifyIfTerminal).toHaveBeenCalled());
+    warn.mockClear();
+
+    voiceAIEmitter.emit('event', {
+      type: 'error',
+      error: new VoiceAIError('WebSocket was closed before the connection was established', true),
+    } satisfies VoiceAIEvent);
+    voiceAIEmitter.emit('event', { type: 'error', error: new VoiceAIError('late fatal error', false) } satisfies VoiceAIEvent);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(options.onFailure).not.toHaveBeenCalled();
+    expect(options.onStatusChange).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'failed' }));
+    warn.mockRestore();
   });
 });

@@ -430,6 +430,13 @@ export class CallSession<TCtx = CallContext> {
         // call over a condition the provider itself flags as retryable tore
         // down a call that was otherwise fine — log and keep going instead.
         // A non-retryable error still ends the call exactly as before.
+        // Once the call is ending, an error can't change anything: it's
+        // usually the voice AI connection closing because the call ended
+        // first (#100).
+        if (this.isEnding()) {
+          logger.debug({ callId: this.opts.callId, err: event.error }, 'Voice AI error after the call ended — ignored');
+          break;
+        }
         if (event.error.retryable) {
           logger.warn({ callId: this.opts.callId, err: event.error }, 'Retryable Voice AI error — continuing the call rather than ending it');
           break;
