@@ -21,9 +21,9 @@ couldn't place a real call):
 
 | | Claude Code | Hermes Agent v0.21.5 | OpenClaw 2026.9.8 |
 |---|---|---|---|
-| Connects to `/mcp` | Not yet (its live setup still uses `/mcp/sse`) | ✓ | ✓ |
+| Connects to `/mcp` | ✓ (live Banjo, since v0.1.5) | ✓ | ✓ |
 | Read-only tool filter | n/a | ✓ | ✓ |
-| Agent turn calls a Banjo tool | ✓ over `/mcp/sse` | ✓ | ✓ |
+| Agent turn calls a Banjo tool | ✓ | ✓ | ✓ |
 | Receives the task webhook | n/a | ✓ (HMAC signature) | ✓ (bearer token) |
 | Loads the skill | ✓ | ✓ (mounted from a checkout) | ✓ (mounted from a checkout) |
 
