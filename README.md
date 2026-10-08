@@ -343,7 +343,7 @@ clawhub install @shatch/banjo-schedule-appointment
 openclaw skills install ./skills/schedule-appointment --global
 ```
 
-**Hermes Agent** (not yet tested with Banjo):
+**Hermes Agent** (add `--yes` when there's no terminal to confirm, e.g. `docker compose exec -T`):
 
 ```bash
 hermes skills install shatch/banjo/skills/schedule-appointment
