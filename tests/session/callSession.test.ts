@@ -2272,6 +2272,23 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
+    it('stops refusing after a few refusals in one call, so a caller who never stops talking cannot keep Banjo on the line', async () => {
+      const { handler, callTool } = await startWithEndTool();
+      for (let i = 1; i <= 3; i++) {
+        say('user', 'And another thing about the bill.');
+        const pending = callTool(`call-${i}`);
+        say('user', 'Wait, hold on, one more thing.');
+        await endTurnAndSettle(pending);
+        expect(handler).not.toHaveBeenCalled();
+      }
+      say('user', 'And another thing about the bill.');
+      const last = callTool('call-4');
+      say('user', 'Wait, hold on, one more thing.');
+      await endTurnAndSettle(last);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
     it('leaves a tool that does not yield to the callee alone', async () => {
       const { handler, callTool } = await startWithEndTool({});
       const pending = callTool('call-1');

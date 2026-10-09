@@ -479,7 +479,6 @@ export const escalateAndEndCallTool: VoiceTool<{ reason: string }> = defineVoice
     reason: z.string().describe('A short explanation of why the call needed to be escalated.'),
   }),
   endsCall: true,
-  yieldsToCallee: true,
   handler: async (input, ctx) => {
     return runToolSafely('escalate_and_end_call', async () => {
       await transitionTask(ctx.task.id, 'escalated', {

@@ -42,6 +42,10 @@ const RECORDING_START_MARGIN_MS = 500;
 // sentence's remaining generation/transmission time while leaving headroom
 // under the 15s tool-pending watchdog even stacked with a slow tool handler.
 const TURN_END_WAIT_MS = 4000;
+// Most call-ending refusals (#102, #133) in one call. Each one re-arms when the
+// other party speaks, so without a cap a caller who never stops talking could
+// keep Banjo on the line indefinitely.
+const MAX_END_REFUSALS = 3;
 
 // Bounds how long CallSession waits for a tool's verbatimMessage (see
 // VoiceTool's doc comment) to finish being spoken via VoiceAIProvider.sayVerbatim
@@ -207,6 +211,8 @@ export class CallSession<TCtx = CallContext> {
    * lead to the call carrying on, and a later ending deserves the same check.
    */
   private endRefused = false;
+  /** Refusals so far this call: capped at MAX_END_REFUSALS, so someone who never stops talking can't keep Banjo on the line. */
+  private endRefusals = 0;
   /**
    * What the other party said while a call-ending tool waited for Banjo's turn
    * to end: '' for a barge-in not yet transcribed, null if they said nothing.
@@ -697,8 +703,9 @@ export class CallSession<TCtx = CallContext> {
       // without prompting Banjo to speak (on openai): server VAD answers once
       // they finish, rather than Banjo talking over them.
       const cutIn = this.calleeSpokeDuringEnd;
-      if (tool.yieldsToCallee && !this.endRefused && cutIn !== null && (cutIn === '' || isCuttingIn(cutIn))) {
+      if (tool.yieldsToCallee && this.canRefuseEnd() && cutIn !== null && (cutIn === '' || isCuttingIn(cutIn))) {
         this.endRefused = true;
+        this.endRefusals++;
         logger.warn({ callId: this.opts.callId, toolCallId, name }, 'Refusing a call-ending tool once: the other party started talking');
         this.voiceAI.sendToolResult(
           toolCallId,
@@ -719,8 +726,9 @@ export class CallSession<TCtx = CallContext> {
       // (openai-live finalizes transcripts late), and refused once until the
       // other party speaks again, so a missed match can delay a hang-up but
       // never block it.
-      if (tool.requiresGoodbye && !this.endRefused && this.lastSpeaker === 'assistant' && !saidGoodbye(this.lastAssistantLine)) {
+      if (tool.requiresGoodbye && this.canRefuseEnd() && this.lastSpeaker === 'assistant' && !saidGoodbye(this.lastAssistantLine)) {
         this.endRefused = true;
+        this.endRefusals++;
         logger.warn({ callId: this.opts.callId, toolCallId, name }, 'Refusing a call-ending tool once: no goodbye was said');
         this.voiceAI.sendToolResult(
           toolCallId,
@@ -775,6 +783,10 @@ export class CallSession<TCtx = CallContext> {
    * resolves, or after timeoutMs if neither does — a missing/late signal shouldn't hang a
    * hang-up tool forever. See handleToolCall's endsCall branch.
    */
+  private canRefuseEnd(): boolean {
+    return !this.endRefused && this.endRefusals < MAX_END_REFUSALS;
+  }
+
   private waitForTurnEnd(timeoutMs: number, stopped?: Promise<void>): Promise<void> {
     return new Promise((resolve) => {
       const done = () => {
