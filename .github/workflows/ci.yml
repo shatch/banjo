@@ -15,7 +15,8 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        # The Docker Official Image via its ECR Public mirror, as in the Dockerfile.
+        image: public.ecr.aws/docker/library/postgres:16-alpine
         env:
           POSTGRES_USER: banjo
           POSTGRES_PASSWORD: banjo
