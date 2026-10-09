@@ -28,8 +28,9 @@ export const placeCallInputSchema = z.object({
       "'booking' (default) negotiates a specific outcome — a time, a voicemail, an escalation. " +
         "'conversation' is for calls with no booking/negotiation goal — deliver a message, discuss something, " +
         "react to what's said — ending naturally rather than at a specific negotiated outcome. " +
-        "A 'booking' call that ends with nothing booked is recorded as 'escalated', so use 'conversation' for any " +
-        'call without a booking goal, such as a check-in, a message or a test call.',
+        "A 'booking' call that simply ends, with no booking, voicemail or failed negotiation recorded, is marked " +
+        "'escalated' for follow-up. So use 'conversation' for a call with no booking goal, such as a check-in, a " +
+        'message or a test call.',
     ),
   scheduledFor: z
     .string()

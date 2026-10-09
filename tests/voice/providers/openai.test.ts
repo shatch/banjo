@@ -170,3 +170,28 @@ describe('OpenAIRealtimeProvider tool-call argument parsing', () => {
     expect(calls[0]!.arguments).toEqual({ date: '2026-09-22', time: '18:00', durationMinutes: 90 });
   });
 });
+
+describe('OpenAIRealtimeProvider.sendToolResult', () => {
+  async function openProvider() {
+    const provider = new OpenAIRealtimeProvider();
+    const connectPromise = provider.connect(sessionConfig);
+    const ws = wsInstances[wsInstances.length - 1]!;
+    ws.readyState = FakeWs.OPEN;
+    ws.emit('open');
+    await connectPromise;
+    ws.sent = [];
+    return { provider, ws };
+  }
+
+  it('prompts the model to continue after a tool result by default', async () => {
+    const { provider, ws } = await openProvider();
+    provider.sendToolResult('call-1', { ok: true });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create', 'response.create']);
+  });
+
+  it("leaves the model waiting for the other party with respond: false (#133)", async () => {
+    const { provider, ws } = await openProvider();
+    provider.sendToolResult('call-1', { ok: false }, true, { respond: false });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create']);
+  });
+});

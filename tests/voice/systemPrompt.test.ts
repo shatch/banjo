@@ -187,10 +187,14 @@ describe('the call stays open while the other party is redirecting it (#133)', (
   // Live call, 2026-10-09: the callee started to tell Banjo something new and
   // Banjo answered "Okay, I'll keep it short and light." and hung up.
   for (const build of [buildBaseSystemPromptGuidance, buildFrontendSystemPromptGuidance]) {
-    it(`${build.name}: never ends the call in reply to them starting to say something or changing course`, () => {
+    it(`${build.name}: never ends the call in reply to them starting to say something`, () => {
       const prompt = build('outbound');
       expect(prompt).toMatch(/never end the call in reply to the other party starting to tell you something/i);
       expect(prompt).toContain('"go ahead"');
+    });
+
+    it(`${build.name}: still ends it when what they want is to end the call`, () => {
+      expect(build('outbound')).toMatch(/if what they want is to end the call .*say goodbye and end it/i);
     });
   }
 });

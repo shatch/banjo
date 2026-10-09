@@ -376,6 +376,7 @@ export const endCallTool: VoiceTool<{ summary?: string }, InboundCallContext> = 
     summary: z.string().optional().describe('Optional short note about how the call concluded.'),
   }),
   endsCall: true,
+  yieldsToCallee: true,
   requiresGoodbye: true,
   handler: async (_input, ctx) => {
     return runToolSafely('end_call', async () => {
@@ -393,6 +394,7 @@ export const flagForOwnerAndEndCallTool: VoiceTool<{ reason: string }, InboundCa
     reason: z.string().describe('A short explanation of why the call needed to be flagged.'),
   }),
   endsCall: true,
+  yieldsToCallee: true,
   handler: async (input, ctx) => {
     return runToolSafely('flag_for_owner_and_end_call', async () => {
       // Urgent (past quiet hours) only for a caller in contacts: an unknown

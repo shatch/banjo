@@ -19,3 +19,19 @@ export function saidGoodbye(line: string): boolean {
   if (SIGN_OFF.test(line) && !/\bsay a quick goodbye\b/i.test(line)) return true;
   return THANKS.test(line) && !DESCRIBES_ENDING.test(line);
 }
+
+/**
+ * Is the other party starting to say something, rather than signing off? (#133)
+ *
+ * Judges what they said while Banjo was ending the call: a goodbye or a short
+ * acknowledgement ("Okay, sounds good.") lets the call end; a redirect ("hold
+ * on", "one more thing") or a real sentence doesn't.
+ */
+const REDIRECT =
+  /\b(wait|hold on|hang on|actually|one more|also|before you go|let me|tell you|question|instead|but)\b/i;
+const SENTENCE_WORDS = 6;
+
+export function isCuttingIn(line: string): boolean {
+  if (saidGoodbye(line)) return false;
+  return REDIRECT.test(line) || line.trim().split(/\s+/).length >= SENTENCE_WORDS;
+}

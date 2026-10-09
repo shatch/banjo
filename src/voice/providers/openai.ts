@@ -244,7 +244,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
     );
   }
 
-  sendToolResult(toolCallId: string, result: unknown, isError?: boolean): void {
+  sendToolResult(toolCallId: string, result: unknown, isError?: boolean, options?: { respond?: boolean }): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const output = isError ? { error: true, ...safeResultObject(result) } : result;
     this.ws.send(
@@ -257,8 +257,9 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
         },
       }),
     );
-    // Prompt the model to continue now that it has the tool result.
-    this.ws.send(JSON.stringify({ type: 'response.create' }));
+    // Prompt the model to continue now that it has the tool result, unless the
+    // caller wants it to wait for the other party (server VAD responds then).
+    if (options?.respond !== false) this.ws.send(JSON.stringify({ type: 'response.create' }));
   }
 
   interrupt(): void {

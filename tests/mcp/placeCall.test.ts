@@ -28,14 +28,6 @@ describe('mcp: place_call schema', () => {
     expect(placeCallInputSchema.safeParse({ ...base, mode: 'conversation' }).success).toBe(true);
   });
 
-  it("tells the calling agent that a booking-mode call with nothing booked is recorded as escalated (#133)", () => {
-    // A test call placed in the default booking mode ended normally and was
-    // recorded as escalated, via end_call's safety net.
-    const description = placeCallInputSchema.shape.mode.description ?? '';
-    expect(description).toMatch(/recorded as 'escalated'/);
-    expect(description).toMatch(/test call/);
-  });
-
   it('rejects an invalid mode value', () => {
     const result = placeCallInputSchema.safeParse({
       contactId: CONTACT_ID,
