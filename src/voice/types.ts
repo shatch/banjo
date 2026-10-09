@@ -116,7 +116,12 @@ export interface VoiceAIProvider {
   readonly name: string;
   connect(config: VoiceAISessionConfig): Promise<void>;
   sendAudioChunk(chunk: AudioChunk): void;
-  sendToolResult(toolCallId: string, result: unknown, isError?: boolean): void;
+  /**
+   * `respond: false` leaves the model waiting for the other party instead of prompting it to speak now (#133: a
+   * callee who cut in while Banjo was ending the call). Honoured by `openai` only. `openai-live` must continue the
+   * backend response that is waiting on the result, and Gemini and ElevenLabs don't prompt a response here anyway.
+   */
+  sendToolResult(toolCallId: string, result: unknown, isError?: boolean, options?: { respond?: boolean }): void;
   /** Tell the model to stop speaking (barge-in). */
   interrupt(): void;
   /**

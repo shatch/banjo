@@ -10,7 +10,7 @@ import { createAudioPlaybackTracker, type AudioPlaybackTracker } from './audioPl
 import { negotiateAudioFormats, resolveAudioPipeline, type AudioPipeline } from './audioPipeline.js';
 import type { CallContext } from './types.js';
 import { checkDisclosure, type DisclosureResult } from './disclosure.js';
-import { saidGoodbye } from './goodbye.js';
+import { isCuttingIn, saidGoodbye } from './goodbye.js';
 import { classifyTranscript } from './transcriptQuality.js';
 
 export type CallSessionState = 'connecting' | 'active' | 'tool-pending' | 'ending' | 'ended' | 'error';
@@ -42,6 +42,10 @@ const RECORDING_START_MARGIN_MS = 500;
 // sentence's remaining generation/transmission time while leaving headroom
 // under the 15s tool-pending watchdog even stacked with a slow tool handler.
 const TURN_END_WAIT_MS = 4000;
+// Most call-ending refusals (#102, #133) in one call. Each one re-arms when the
+// other party speaks, so without a cap a caller who never stops talking could
+// keep Banjo on the line indefinitely.
+const MAX_END_REFUSALS = 3;
 
 // Bounds how long CallSession waits for a tool's verbatimMessage (see
 // VoiceTool's doc comment) to finish being spoken via VoiceAIProvider.sayVerbatim
@@ -201,8 +205,19 @@ export class CallSession<TCtx = CallContext> {
   /** Who spoke the latest transcribed line, and Banjo's latest line — what the goodbye check (#102) judges. */
   private lastSpeaker: 'user' | 'assistant' | undefined;
   private lastAssistantLine = '';
-  /** A requiresGoodbye tool is refused at most once per call (#102). */
-  private goodbyeRefused = false;
+  /**
+   * A call-ending tool is refused (no goodbye #102, or the other party cutting
+   * in #133) at most once until the other party speaks again: a refusal can
+   * lead to the call carrying on, and a later ending deserves the same check.
+   */
+  private endRefused = false;
+  /** Refusals so far this call: capped at MAX_END_REFUSALS, so someone who never stops talking can't keep Banjo on the line. */
+  private endRefusals = 0;
+  /**
+   * What the other party said while a call-ending tool waited for Banjo's turn
+   * to end: '' for a barge-in not yet transcribed, null if they said nothing.
+   */
+  private calleeSpokeDuringEnd: string | null = null;
   /**
    * idle → (notice in Banjo's final line) awaiting_turn_end → (turn_end)
    * scheduled → started. An interruption before turn_end drops back to idle:
@@ -400,6 +415,13 @@ export class CallSession<TCtx = CallContext> {
           if (event.role === 'assistant' && this.firstAssistantLine === undefined) this.firstAssistantLine = event.text;
           this.lastSpeaker = event.role;
           if (event.role === 'assistant') this.lastAssistantLine = event.text;
+          // #133: their words while Banjo is ending the call decide whether it
+          // ends; any other line of theirs means the call carried on, so the
+          // ending checks apply afresh.
+          if (event.role === 'user' && quality === 'ok') {
+            if (this.callEndingToolCallId !== null) this.calleeSpokeDuringEnd = event.text;
+            else this.endRefused = false;
+          }
           if (event.role === 'assistant' && RECORDING_NOTICE.test(event.text) && this.opts.recordCalls && this.recordingState === 'idle') {
             this.recordingState = 'awaiting_turn_end';
             this.recordingNoticeFraction = noticeFraction(event.text);
@@ -437,6 +459,9 @@ export class CallSession<TCtx = CallContext> {
           logger.warn({ callId: this.opts.callId }, 'barge-in before the recording notice had played — this call will not be recorded');
         }
         this.cutOffVerbatimDelivery();
+        // #133: they started talking while Banjo was ending the call. Their
+        // transcript, if it arrives in time, replaces this.
+        if (this.callEndingToolCallId !== null) this.calleeSpokeDuringEnd ??= '';
         // Caller barge-in — flush whatever we've already queued on the phone
         // leg, and reset the playback tracker's high-water mark: the
         // discarded buffered-but-unplayed audio will never actually play,
@@ -668,23 +693,54 @@ export class CallSession<TCtx = CallContext> {
       return;
     }
 
-    if (tool.endsCall) this.callEndingToolCallId = toolCallId;
+    if (tool.endsCall) {
+      this.callEndingToolCallId = toolCallId;
+      this.calleeSpokeDuringEnd = null;
+    }
     try {
       if (tool.endsCall) await this.waitForTurnEnd(TURN_END_WAIT_MS);
+      // #133: they started talking while Banjo was ending the call. Refused
+      // without prompting Banjo to speak (on openai): server VAD answers once
+      // they finish, rather than Banjo talking over them.
+      const cutIn = this.calleeSpokeDuringEnd;
+      if (tool.yieldsToCallee && this.canRefuseEnd() && cutIn !== null && (cutIn === '' || isCuttingIn(cutIn))) {
+        this.endRefused = true;
+        this.endRefusals++;
+        logger.warn({ callId: this.opts.callId, toolCallId, name }, 'Refusing a call-ending tool once: the other party started talking');
+        this.voiceAI.sendToolResult(
+          toolCallId,
+          {
+            ok: false,
+            error: 'callee_speaking',
+            message:
+              'They started talking while you were ending the call. Do not end it yet: let them finish, then respond to ' +
+              'what they said. End the call only once they are done.',
+          },
+          true,
+          { respond: false },
+        );
+        return;
+      }
       // #102: the model can end a call having only described wrapping up.
       // Judged only when Banjo's line for this turn has been transcribed
-      // (openai-live finalizes transcripts late), and refused once per call,
-      // so a missed match can delay a hang-up but never block it.
-      if (tool.requiresGoodbye && !this.goodbyeRefused && this.lastSpeaker === 'assistant' && !saidGoodbye(this.lastAssistantLine)) {
-        this.goodbyeRefused = true;
+      // (openai-live finalizes transcripts late), and refused once until the
+      // other party speaks again, so a missed match can delay a hang-up but
+      // never block it.
+      if (tool.requiresGoodbye && this.canRefuseEnd() && this.lastSpeaker === 'assistant' && !saidGoodbye(this.lastAssistantLine)) {
+        this.endRefused = true;
+        this.endRefusals++;
         logger.warn({ callId: this.opts.callId, toolCallId, name }, 'Refusing a call-ending tool once: no goodbye was said');
         this.voiceAI.sendToolResult(
           toolCallId,
           {
             ok: false,
             error: 'no_goodbye',
+            // #133: offering only "say goodbye, then end" hung up on a callee
+            // who was trying to redirect Banjo.
             message:
-              `You have not said goodbye yet. Say an actual goodbye to them now (e.g. "Thanks so much, take care. Bye!"), then call ${name} again in the same turn. ` +
+              'You have not said goodbye yet. If they are still telling you something, asked you a question, or want ' +
+              'something different, do not end the call: answer them and carry on, and end it later. ' +
+              `Otherwise, say an actual goodbye to them now (e.g. "Thanks so much, take care. Bye!"), then call ${name} again in the same turn. ` +
               'Do not describe ending the call, just say goodbye.',
           },
           true,
@@ -727,6 +783,10 @@ export class CallSession<TCtx = CallContext> {
    * resolves, or after timeoutMs if neither does — a missing/late signal shouldn't hang a
    * hang-up tool forever. See handleToolCall's endsCall branch.
    */
+  private canRefuseEnd(): boolean {
+    return !this.endRefused && this.endRefusals < MAX_END_REFUSALS;
+  }
+
   private waitForTurnEnd(timeoutMs: number, stopped?: Promise<void>): Promise<void> {
     return new Promise((resolve) => {
       const done = () => {

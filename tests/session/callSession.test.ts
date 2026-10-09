@@ -2127,7 +2127,9 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
   const say = (role: 'user' | 'assistant', text: string) =>
     voiceAIEmitter.emit('event', { type: 'transcript', role, text, isFinal: true } satisfies VoiceAIEvent);
 
-  async function startWithEndTool(opts: { requiresGoodbye?: boolean } = { requiresGoodbye: true }) {
+  async function startWithEndTool(
+    opts: { requiresGoodbye?: boolean; yieldsToCallee?: boolean } = { requiresGoodbye: true, yieldsToCallee: true },
+  ) {
     const telephony = makeFakeTelephony();
     const options = makeFakeCallSessionOptions(telephony.provider);
     const handler = vi.fn(async () => ({ ok: true }));
@@ -2161,7 +2163,29 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses at most once per call, even if the retry still has no goodbye', async () => {
+  it('checks again once the other party has spoken since the last refusal (#133)', async () => {
+    // The refusal now lets the call carry on, so a once-per-call budget would
+    // be spent mid-call and leave every later ending unchecked.
+    const { handler, callTool } = await startWithEndTool();
+    say('user', 'Now let me tell you something.');
+    say('assistant', "Okay, I'll keep it short and light.");
+    await endTurnAndSettle(callTool('call-1'));
+    expect(handler).not.toHaveBeenCalled();
+
+    say('assistant', 'Sure, go ahead.');
+    say('user', 'I wanted to ask whether you can call back on Monday instead.');
+    say('assistant', 'Sure, sounds good.');
+    await endTurnAndSettle(callTool('call-2'));
+    expect(handler).not.toHaveBeenCalled();
+    expect(fakeVoiceAI.sendToolResult).toHaveBeenLastCalledWith('call-2', expect.objectContaining({ error: 'no_goodbye' }), true);
+
+    // With nothing said by them since, the retry goes through.
+    say('assistant', 'Alright then.');
+    await endTurnAndSettle(callTool('call-3'));
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses only once until the other party speaks again, even if the retry still has no goodbye', async () => {
     const { handler, callTool } = await startWithEndTool();
     say('user', 'Mhm.');
     say('assistant', "Okay, let's close this out.");
@@ -2190,6 +2214,89 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     await endTurnAndSettle(callTool('call-1'));
 
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the other party cuts in while Banjo is ending the call (#133)', () => {
+    it('refuses once, without making Banjo talk over them, when they start a sentence during the ending', async () => {
+      const { handler, callTool } = await startWithEndTool();
+      say('user', 'Okay.');
+      const pending = callTool('call-1');
+      say('assistant', 'Great — take care, bye!');
+      say('user', 'Wait, hold on, one more thing.');
+      await endTurnAndSettle(pending);
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(fakeVoiceAI.sendToolResult).toHaveBeenLastCalledWith(
+        'call-1',
+        expect.objectContaining({ ok: false, error: 'callee_speaking' }),
+        true,
+        { respond: false },
+      );
+    });
+
+    it('treats a barge-in during the ending as cutting in, before their words are transcribed', async () => {
+      const { handler, callTool } = await startWithEndTool();
+      say('user', 'Okay.');
+      const pending = callTool('call-1');
+      say('assistant', 'Great — take care, bye!');
+      voiceAIEmitter.emit('event', { type: 'interrupted' } satisfies VoiceAIEvent);
+      await endTurnAndSettle(pending);
+
+      expect(handler).not.toHaveBeenCalled();
+      expect(fakeVoiceAI.sendToolResult).toHaveBeenLastCalledWith('call-1', expect.objectContaining({ error: 'callee_speaking' }), true, {
+        respond: false,
+      });
+    });
+
+    it('lets the call end when what they said over the goodbye was a goodbye too', async () => {
+      const { handler, callTool } = await startWithEndTool();
+      say('user', 'Okay.');
+      const pending = callTool('call-1');
+      say('assistant', 'Great — take care, bye!');
+      voiceAIEmitter.emit('event', { type: 'interrupted' } satisfies VoiceAIEvent);
+      say('user', 'Thanks, you too!');
+      await endTurnAndSettle(pending);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('lets the retry through when they said nothing more after the refusal', async () => {
+      const { handler, callTool } = await startWithEndTool();
+      say('user', 'Okay.');
+      const pending = callTool('call-1');
+      say('assistant', 'Great — take care, bye!');
+      say('user', 'Hold on.');
+      await endTurnAndSettle(pending);
+      await endTurnAndSettle(callTool('call-2'));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops refusing after a few refusals in one call, so a caller who never stops talking cannot keep Banjo on the line', async () => {
+      const { handler, callTool } = await startWithEndTool();
+      for (let i = 1; i <= 3; i++) {
+        say('user', 'And another thing about the bill.');
+        const pending = callTool(`call-${i}`);
+        say('user', 'Wait, hold on, one more thing.');
+        await endTurnAndSettle(pending);
+        expect(handler).not.toHaveBeenCalled();
+      }
+      say('user', 'And another thing about the bill.');
+      const last = callTool('call-4');
+      say('user', 'Wait, hold on, one more thing.');
+      await endTurnAndSettle(last);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves a tool that does not yield to the callee alone', async () => {
+      const { handler, callTool } = await startWithEndTool({});
+      const pending = callTool('call-1');
+      say('user', 'Wait, hold on, one more thing.');
+      await endTurnAndSettle(pending);
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
   });
 
   it('never refuses a tool that does not require a goodbye', async () => {

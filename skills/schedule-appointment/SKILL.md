@@ -94,6 +94,9 @@ Call `find_contact(query)`.
 Call `place_call(contactId, taskDescription, constraints)`. This returns immediately — the call
 itself runs in the background and can take several minutes.
 
+If the call has nothing to book (a message, a check-in, a test call), pass `mode: "conversation"`.
+The default `booking` mode marks a call that ends without a booking as `escalated`, for follow-up.
+
 - Relay `ackMessage` to the principal conversationally. Make it unambiguous that the call hasn't
   happened yet and is now in progress — never imply it's done.
 - Mention the principal will be notified when it resolves (by text or push, however their Banjo is
