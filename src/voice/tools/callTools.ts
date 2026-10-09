@@ -458,6 +458,7 @@ export const reportNegotiationFailedTool: VoiceTool<{ reason: string }> = define
     reason: z.string().describe('A short explanation of why no offered time worked.'),
   }),
   endsCall: true,
+  yieldsToCallee: true,
   requiresGoodbye: true,
   handler: async (input, ctx) => {
     return runToolSafely('report_negotiation_failed', async () => {
@@ -510,6 +511,7 @@ export const endCallTool: VoiceTool<{ summary?: string }> = defineVoiceTool({
     summary: z.string().optional().describe('Optional short note about how the call concluded.'),
   }),
   endsCall: true,
+  yieldsToCallee: true,
   requiresGoodbye: true,
   handler: async (input, ctx) => {
     return runToolSafely('end_call', async () => {
@@ -571,6 +573,7 @@ export const endConversationCallTool: VoiceTool<{ summary: string }> = defineVoi
     summary: z.string().describe('A short summary of what was discussed/accomplished on this call.'),
   }),
   endsCall: true,
+  yieldsToCallee: true,
   requiresGoodbye: true,
   handler: async (input, ctx) => {
     return runToolSafely('end_conversation_call', async () => {

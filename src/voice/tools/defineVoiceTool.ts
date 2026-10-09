@@ -32,6 +32,15 @@ export interface VoiceTool<TInput = unknown, TCtx = CallContext> {
    */
   requiresGoodbye?: boolean;
   /**
+   * For an endsCall tool that should give way when the other party starts
+   * talking while Banjo is ending the call (#133): CallSession refuses it once,
+   * without prompting Banjo to speak, so it hears them out. Set on the
+   * requiresGoodbye tools. Leave it off the escalation tools (talking must
+   * never hold up getting off the line with a hostile caller or a phone menu),
+   * a voicemail (a reply already cuts its delivery off) and a transfer.
+   */
+  yieldsToCallee?: boolean;
+  /**
    * For a tool whose argument IS content meant to reach the other party
    * (e.g. a voicemail message) — extracts that text from the validated
    * input. When present, CallSession forces the model to speak this text

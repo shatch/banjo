@@ -588,3 +588,26 @@ describe('which call-ending tools require a goodbye (#102)', () => {
     });
   });
 });
+
+describe('which call-ending tools yield to a callee who cuts in (#133)', () => {
+  // Escalation is how Banjo gets off the line with a hostile caller or a phone
+  // menu, so talking must never be able to hold it up.
+  it('yields on the normal endings, and not on voicemail or escalation', async () => {
+    const { callTools, endConversationCallTool } = await import('../../src/voice/tools/callTools.js');
+    const yielding = [...callTools, endConversationCallTool]
+      .filter((t) => t.endsCall)
+      .map((t) => [t.name, t.yieldsToCallee === true]);
+    expect(Object.fromEntries(yielding)).toEqual({
+      leave_voicemail_and_end_call: false,
+      report_negotiation_failed: true,
+      escalate_and_end_call: false,
+      end_call: true,
+      end_conversation_call: true,
+    });
+  });
+
+  it('does not yield on the inbound flag_for_owner_and_end_call', async () => {
+    const { flagForOwnerAndEndCallTool } = await import('../../src/inbound/tools.js');
+    expect(flagForOwnerAndEndCallTool.yieldsToCallee).not.toBe(true);
+  });
+});

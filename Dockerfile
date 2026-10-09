@@ -1,7 +1,7 @@
-# syntax=docker/dockerfile:1
-
 # ---- build stage: needs devDependencies (typescript) ----
-FROM node:22-alpine AS builder
+# Docker Official Images, pulled from their ECR Public mirror: GitHub runners
+# hit Docker Hub's anonymous pull limit (2026-10-09).
+FROM public.ecr.aws/docker/library/node:22-alpine AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -10,7 +10,7 @@ COPY src ./src
 RUN npm run build
 
 # ---- runtime stage: production deps only ----
-FROM node:22-alpine AS runtime
+FROM public.ecr.aws/docker/library/node:22-alpine AS runtime
 # Proves to the MCP Registry that this image is the server server.json names
 # (io.github.shatch/banjo). Must match server.json's `name` exactly.
 LABEL io.modelcontextprotocol.server.name="io.github.shatch/banjo"

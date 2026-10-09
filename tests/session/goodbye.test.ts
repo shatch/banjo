@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { saidGoodbye } from '../../src/session/goodbye.js';
+import { isCuttingIn, saidGoodbye } from '../../src/session/goodbye.js';
 
 describe('saidGoodbye (#102)', () => {
   it.each([
@@ -27,4 +27,23 @@ describe('saidGoodbye (#102)', () => {
   ])('rejects a line with no goodbye: %s', (line) => {
     expect(saidGoodbye(line)).toBe(false);
   });
+});
+
+describe('isCuttingIn (#133)', () => {
+  it.each([
+    'Now let me tell you something.',
+    'Hold on.',
+    'Wait, one more thing.',
+    'Actually, can you also ask about Saturday?',
+    'Before you go, I wanted to ask you about the bill for last month.',
+  ])('treats a redirect or a real sentence as cutting in: %s', (line) => {
+    expect(isCuttingIn(line)).toBe(true);
+  });
+
+  it.each(['Bye!', 'Thanks, you too!', 'Okay, sounds good.', 'Mhm.', 'You too.', 'Take care.'])(
+    "doesn't treat a goodbye or a short acknowledgement as cutting in: %s",
+    (line) => {
+      expect(isCuttingIn(line)).toBe(false);
+    },
+  );
 });

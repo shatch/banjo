@@ -90,6 +90,9 @@ function guidanceSections(direction: CallDirection, { transfer = config.TRANSFER
         // then wrap up the call." — then it hung up. The callee heard a
         // description of a goodbye, never an actual one.
         '- The goodbye must BE the goodbye, spoken to them ("Thanks so much — have a great evening!"). Never describe it ("I\'ll say a quick goodbye", "let me wrap up the call", "I\'ll end the call now").',
+        // #133: the callee started "now let me tell you…" and Banjo answered
+        // "Okay, I'll keep it short and light." and hung up.
+        '- Never end the call in reply to the other party starting to tell you something or asking you to wait ("let me tell you something", "actually…", "hold on", "one more thing"). Say "go ahead", listen, and respond within what this call is for. The call is over only when they are done too. If what they want is to end the call (they have to go, or ask you to call back later), say goodbye and end it.',
       ],
     },
     {

@@ -376,6 +376,7 @@ export const endCallTool: VoiceTool<{ summary?: string }, InboundCallContext> = 
     summary: z.string().optional().describe('Optional short note about how the call concluded.'),
   }),
   endsCall: true,
+  yieldsToCallee: true,
   requiresGoodbye: true,
   handler: async (_input, ctx) => {
     return runToolSafely('end_call', async () => {
