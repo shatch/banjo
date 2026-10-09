@@ -1,6 +1,6 @@
 {
   "name": "banjo",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Banjo — an open-source, self-hostable AI executive assistant that places real phone calls on your behalf",
   "type": "module",
   "private": true,
