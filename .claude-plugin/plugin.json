@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "banjo",
   "displayName": "Banjo",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Connects Claude Code to your self-hosted Banjo, which places real phone calls for you, and adds the schedule-appointment skill.",
   "author": { "name": "Steve Hatch", "url": "https://github.com/shatch" },
   "homepage": "https://github.com/shatch/banjo",
