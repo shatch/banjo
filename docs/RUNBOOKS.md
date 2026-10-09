@@ -351,8 +351,13 @@ then point at that version.
    registry checks its label against `server.json`'s `name`.
    ```bash
    brew install mcp-publisher     # once
-   mcp-publisher login github     # authenticates as shatch, which owns io.github.shatch/*
+   mcp-publisher login github     # every release: authenticates as shatch, which owns io.github.shatch/*
    mcp-publisher publish
+   ```
+   Log in each release: the registry token it saves expires, and `publish` with an old one fails
+   with `401 ... token is expired`. Then check that the new version is the one marked latest:
+   ```bash
+   curl -s "https://registry.modelcontextprotocol.io/v0/servers?search=io.github.shatch/banjo"
    ```
 5. **The plugin needs no extra step.** Users who added the marketplace
    (`/plugin marketplace add shatch/banjo`) get the new `version` from `main` the next time they
