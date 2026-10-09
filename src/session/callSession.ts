@@ -683,8 +683,12 @@ export class CallSession<TCtx = CallContext> {
           {
             ok: false,
             error: 'no_goodbye',
+            // #133: offering only "say goodbye, then end" hung up on a callee
+            // who was trying to redirect Banjo.
             message:
-              `You have not said goodbye yet. Say an actual goodbye to them now (e.g. "Thanks so much, take care. Bye!"), then call ${name} again in the same turn. ` +
+              'You have not said goodbye yet. If they are still telling you something, asked you a question, or want ' +
+              'something different, do not end the call: answer them and carry on, and end it later. ' +
+              `Otherwise, say an actual goodbye to them now (e.g. "Thanks so much, take care. Bye!"), then call ${name} again in the same turn. ` +
               'Do not describe ending the call, just say goodbye.',
           },
           true,

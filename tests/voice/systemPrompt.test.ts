@@ -183,6 +183,18 @@ describe('the goodbye is said, not announced', () => {
   });
 });
 
+describe('the call stays open while the other party is redirecting it (#133)', () => {
+  // Live call, 2026-10-09: the callee started to tell Banjo something new and
+  // Banjo answered "Okay, I'll keep it short and light." and hung up.
+  for (const build of [buildBaseSystemPromptGuidance, buildFrontendSystemPromptGuidance]) {
+    it(`${build.name}: never ends the call in reply to them starting to say something or changing course`, () => {
+      const prompt = build('outbound');
+      expect(prompt).toMatch(/never end the call in reply to the other party starting to tell you something/i);
+      expect(prompt).toContain('"go ahead"');
+    });
+  }
+});
+
 describe('a tentative answer is not treated as a yes, even in words', () => {
   // Demo call, 2026-09-23: to "Yeah, that could probably work" the model said
   // "Okay, thanks for confirming—let me lock that in", then in the next breath

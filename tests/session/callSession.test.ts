@@ -2161,6 +2161,20 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it("lets the model keep the call going instead of forcing a goodbye (#133)", async () => {
+    // The refusal used to say only "say goodbye now, then end the call", which
+    // hung up on a callee who was trying to redirect Banjo.
+    const { handler, callTool } = await startWithEndTool();
+    say('user', 'Now let me tell you something.');
+    say('assistant', "Okay, I'll keep it short and light.");
+    await endTurnAndSettle(callTool('call-1'));
+
+    expect(handler).not.toHaveBeenCalled();
+    const [, result] = vi.mocked(fakeVoiceAI.sendToolResult).mock.calls.at(-1)!;
+    expect((result as { message: string }).message).toMatch(/do not end the call/i);
+    expect((result as { message: string }).message).toMatch(/otherwise, say an actual goodbye/i);
+  });
+
   it('refuses at most once per call, even if the retry still has no goodbye', async () => {
     const { handler, callTool } = await startWithEndTool();
     say('user', 'Mhm.');
