@@ -12,6 +12,9 @@ describe('saidGoodbye (#102)', () => {
     'See you Friday!',
     'Good night!',
     'Thanks again for your help!',
+    "I'll say goodbye now. Bye!",
+    'Okay, goodbye then!',
+    'Thanks so much, and goodbye!',
   ])('accepts a real goodbye: %s', (line) => {
     expect(saidGoodbye(line)).toBe(true);
   });
@@ -24,6 +27,10 @@ describe('saidGoodbye (#102)', () => {
     "Perfect, that's all set. I'll say a quick goodbye and end the call.",
     'Got it. Is there anything else I can help with?',
     'Sure, Friday at 10 works.',
+    // The live call in #139: the retry after a refusal talked about a goodbye.
+    "Thanks for hanging on a second—I'll just finish this up with a proper goodbye.",
+    'Let me just say goodbye properly.',
+    'I wanted to end with a real goodbye.',
   ])('rejects a line with no goodbye: %s', (line) => {
     expect(saidGoodbye(line)).toBe(false);
   });

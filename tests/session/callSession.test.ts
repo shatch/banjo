@@ -2148,6 +2148,15 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     await pending;
   }
 
+  /** Ends the model's turn, then the turn CallSession forces for its own goodbye (#139). */
+  async function endTurnThenFallbackGoodbye(pending: Promise<void>) {
+    voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+    await vi.waitFor(() => expect(fakeVoiceAI.sayVerbatim).toHaveBeenCalledWith('Okay, take care. Bye!'));
+    say('assistant', 'Okay, take care. Bye!');
+    voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+    await pending;
+  }
+
   it('refuses once when the last thing Banjo said is not a goodbye, then allows the retry', async () => {
     const { handler, callTool } = await startWithEndTool();
     say('assistant', 'Anything else you want to add before we wrap up?');
@@ -2161,6 +2170,7 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     say('assistant', 'Thanks so much, take care. Bye!');
     await endTurnAndSettle(callTool('call-2'));
     expect(handler).toHaveBeenCalledTimes(1);
+    expect(fakeVoiceAI.sayVerbatim).not.toHaveBeenCalled();
   });
 
   it('checks again once the other party has spoken since the last refusal (#133)', async () => {
@@ -2179,9 +2189,10 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     expect(handler).not.toHaveBeenCalled();
     expect(fakeVoiceAI.sendToolResult).toHaveBeenLastCalledWith('call-2', expect.objectContaining({ error: 'no_goodbye' }), true);
 
-    // With nothing said by them since, the retry goes through.
+    // With nothing said by them since, the retry goes through (with Banjo's
+    // own goodbye, #139).
     say('assistant', 'Alright then.');
-    await endTurnAndSettle(callTool('call-3'));
+    await endTurnThenFallbackGoodbye(callTool('call-3'));
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -2191,9 +2202,71 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     say('assistant', "Okay, let's close this out.");
     await endTurnAndSettle(callTool('call-1'));
     say('assistant', 'Alright, wrapping up.');
-    await endTurnAndSettle(callTool('call-2'));
+    await endTurnThenFallbackGoodbye(callTool('call-2'));
 
     expect(handler).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the retry still has no goodbye (#139)', () => {
+    // Live call (2026-10-09): refused, Banjo said "Thanks for hanging on a
+    // second—I'll just finish this up with a proper goodbye." and called the
+    // tool again; the retry went through and the callee never heard a goodbye.
+    it('says a fixed goodbye itself, then ends the call once that turn is over', async () => {
+      const { handler, callTool } = await startWithEndTool();
+      say('user', 'Yes, I wanna watch it right now.');
+      say('assistant', "Okay, got it—let's keep it simple and wrap things up nicely.");
+      await endTurnAndSettle(callTool('call-1'));
+      expect(fakeVoiceAI.sendToolResult).toHaveBeenLastCalledWith('call-1', expect.objectContaining({ error: 'no_goodbye' }), true);
+
+      say('assistant', "Thanks for hanging on a second—I'll just finish this up with a proper goodbye.");
+      const retry = callTool('call-2');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.waitFor(() => expect(fakeVoiceAI.sayVerbatim).toHaveBeenCalledWith('Okay, take care. Bye!'));
+      expect(handler).not.toHaveBeenCalled();
+
+      say('assistant', 'Okay, take care. Bye!');
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await retry;
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(fakeVoiceAI.sendToolResult).toHaveBeenLastCalledWith('call-2', { ok: true }, false);
+    });
+
+    it('says it once the refusals are used up, too', async () => {
+      const { handler, callTool } = await startWithEndTool();
+      for (let i = 1; i <= 3; i++) {
+        say('user', 'And another thing about the bill.');
+        const pending = callTool(`call-${i}`);
+        say('user', 'Wait, hold on, one more thing.');
+        await endTurnAndSettle(pending);
+      }
+      say('user', 'And another thing about the bill.');
+      say('assistant', 'I hear you. I will pass that on to Steve.');
+      await endTurnThenFallbackGoodbye(callTool('call-4'));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("doesn't when the other party spoke last", async () => {
+      const { handler, callTool } = await startWithEndTool();
+      say('user', 'Mhm.');
+      say('assistant', "Okay, let's close this out.");
+      await endTurnAndSettle(callTool('call-1'));
+      say('user', 'Bye now!');
+      await endTurnAndSettle(callTool('call-2'));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(fakeVoiceAI.sayVerbatim).not.toHaveBeenCalled();
+    });
+
+    it('tells the model the refusal is not something the other party said', async () => {
+      const { callTool } = await startWithEndTool();
+      say('user', 'Mhm.');
+      say('assistant', "Okay, let's close this out.");
+      await endTurnAndSettle(callTool('call-1'));
+
+      const [, result] = vi.mocked(fakeVoiceAI.sendToolResult).mock.lastCall!;
+      expect((result as { message: string }).message).toMatch(/from the system, not from them/);
+    });
   });
 
   it('lets the tool run when the last line is a goodbye', async () => {
@@ -2306,5 +2379,6 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     await endTurnAndSettle(callTool('call-1'));
 
     expect(handler).toHaveBeenCalledTimes(1);
+    expect(fakeVoiceAI.sayVerbatim).not.toHaveBeenCalled();
   });
 });

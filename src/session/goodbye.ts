@@ -13,10 +13,15 @@
 const SIGN_OFF =
   /\b(good-?bye|bye|take care|talk (to you )?soon|see you|good ?night|have a (great|good|nice|lovely|wonderful|fantastic) (one|day|evening|night|weekend|afternoon|morning|time)|cheers)\b/i;
 const THANKS = /\b(thanks|thank you)\b/i;
-const DESCRIBES_ENDING = /\b(wrap(ping)? (this |it |things )?up|close (this|it|things) out|end(ing)? (the|this) call|hang(ing)? up|finish(ing)? up|say a quick goodbye)\b/i;
+const DESCRIBES_ENDING =
+  /\b(wrap(ping)? (this |it |things )?up|close (this|it|things) out|end(ing)? (the|this) call|hang(ing)? up|finish(ing)? (this |it |things )?up|say a quick goodbye)\b/i;
+// "Goodbye" talked about rather than said (#139: "I'll just finish this up
+// with a proper goodbye." ended a call with no goodbye). Removed before the
+// sign-off check, so "I'll say goodbye now. Bye!" still counts.
+const MENTIONS_GOODBYE = /\b(say(ing)?|with|a|the|my|our|proper|quick|real|final) good-?bye\b/gi;
 
 export function saidGoodbye(line: string): boolean {
-  if (SIGN_OFF.test(line) && !/\bsay a quick goodbye\b/i.test(line)) return true;
+  if (SIGN_OFF.test(line.replace(MENTIONS_GOODBYE, ''))) return true;
   return THANKS.test(line) && !DESCRIBES_ENDING.test(line);
 }
 
