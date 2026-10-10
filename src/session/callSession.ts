@@ -46,6 +46,10 @@ const TURN_END_WAIT_MS = 4000;
 // other party speaks, so without a cap a caller who never stops talking could
 // keep Banjo on the line indefinitely.
 const MAX_END_REFUSALS = 3;
+// Said by CallSession itself when a goodbye-requiring tool goes through with
+// no goodbye said (#139): the retry after a refusal can't be refused again, or
+// refusals could hold a call open, but the other party should still hear one.
+const FALLBACK_GOODBYE = 'Okay, take care. Bye!';
 
 // Bounds how long CallSession waits for a tool's verbatimMessage (see
 // VoiceTool's doc comment) to finish being spoken via VoiceAIProvider.sayVerbatim
@@ -737,15 +741,27 @@ export class CallSession<TCtx = CallContext> {
             error: 'no_goodbye',
             // #133: offering only "say goodbye, then end" hung up on a callee
             // who was trying to redirect Banjo.
+            // #139: Banjo answered this note out loud ("Thanks for hanging on
+            // a second—I'll just finish this up with a proper goodbye.").
             message:
-              'You have not said goodbye yet. If they are still telling you something, asked you a question, or want ' +
+              'You have not said goodbye yet. This note is from the system, not from them: do not answer it, thank them ' +
+              'for waiting, or mention it. If they are still telling you something, asked you a question, or want ' +
               'something different, do not end the call: answer them and carry on, and end it later. ' +
-              `Otherwise, say an actual goodbye to them now (e.g. "Thanks so much, take care. Bye!"), then call ${name} again in the same turn. ` +
-              'Do not describe ending the call, just say goodbye.',
+              `Otherwise, say only a short goodbye, such as "Okay, take care. Bye!", then call ${name} again in the same turn. ` +
+              'Do not talk about ending the call or about saying goodbye.',
           },
           true,
         );
         return;
+      }
+      // #139: past the refusal above (already spent, or capped), the model can
+      // still end on a line with no goodbye. Say one for it rather than refuse
+      // again, so the other party hears a goodbye and the call still ends.
+      if (tool.requiresGoodbye && this.lastSpeaker === 'assistant' && !saidGoodbye(this.lastAssistantLine)) {
+        logger.warn({ callId: this.opts.callId, toolCallId, name }, 'Saying a fixed goodbye before ending the call: none was said');
+        this.armToolPendingWatchdog(toolCallId, name, VERBATIM_TOOL_PENDING_BUDGET_MS);
+        const goodbye = await this.deliverVerbatim([FALLBACK_GOODBYE]);
+        if (!goodbye.matched) logger.warn({ callId: this.opts.callId, toolCallId, name }, 'The fixed goodbye may not have been heard in full');
       }
       // A tool with its own handler budget (VoiceTool.handlerBudgetMs) gets it
       // from here — the same point toolBudgetMs counts it from.
