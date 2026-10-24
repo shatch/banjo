@@ -603,11 +603,18 @@ describe('OpenAIRealtimeProvider.sayVerbatim while another response is open', ()
 
   // #198: given the whole conversation, with its own voicemail tool call still
   // open, the model often said "I've left a voicemail…" instead of the opener.
-  it('asks for the message with no conversation history, so the model sees only the words to say', async () => {
+  //
+  // #214: with `input: []`, 3 of 33 of these responses failed with a
+  // server_error and said nothing (0 of 48 with one input line), and with tools
+  // available one called leave_voicemail_and_end_call instead of speaking.
+  it('asks for the message with no conversation history, one line of input and no tools', async () => {
     const { provider, creates } = await openProvider();
     provider.sayVerbatim('Hi, please call back.');
-    expect(creates()[0].response.input).toEqual([]);
-    expect(creates()[0].response.conversation).toBeUndefined();
+    const { response } = creates()[0];
+    expect(response.input).toEqual([{ type: 'message', role: 'user', content: [{ type: 'input_text', text: expect.any(String) }] }]);
+    expect(response.input[0].content[0].text).not.toContain('Hi, please call back.');
+    expect(response.tool_choice).toBe('none');
+    expect(response.conversation).toBeUndefined();
   });
 
   it("marks only the message's own turn_end, and reports only what that response said", async () => {
