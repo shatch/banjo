@@ -89,6 +89,12 @@ vi.mock('../src/inbound/callerContext.js', () => ({
   resolveCallerContext: (callerPhoneNumber: string) => resolveCallerContext(callerPhoneNumber),
 }));
 
+// Same reason: the recent-calls lookup (#129) would hit the real DB.
+const recentOutboundCalls = vi.fn(async (_contactId: string) => [] as unknown[]);
+vi.mock('../src/inbound/recentCalls.js', () => ({
+  recentOutboundCalls: (contactId: string) => recentOutboundCalls(contactId),
+}));
+
 const sessionStart = vi.fn(async () => {});
 const sessionOptions = vi.fn((_opts: { tools: { name: string }[]; systemPrompt: string }) => {});
 vi.mock('../src/session/callSession.js', () => ({
@@ -320,6 +326,35 @@ describe('inbound transfer is limited to recognized callers (#66)', () => {
       expect(unknown.prompt).not.toContain('transfer_to_owner');
     } finally {
       config.TRANSFER_ENABLED = false;
+      config.INBOUND_BOOKING_ENABLED = false;
+    }
+  });
+});
+
+describe('a returning caller gets their recent calls from Banjo (#129)', () => {
+  async function answer(contactId: string | undefined) {
+    resolveCallerContext.mockResolvedValueOnce({ contactId, greetingContext: undefined } as never);
+    await app.request('/telephony/twilio/inbound', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': 'valid-signature' },
+      body: inboundWebhookBody(),
+    });
+    return sessionOptions.mock.calls.at(-1)![0].systemPrompt;
+  }
+
+  it("puts a recognized caller's recent calls in the prompt, and never looks any up for an unknown caller", async () => {
+    config.INBOUND_BOOKING_ENABLED = true;
+    try {
+      recentOutboundCalls.mockResolvedValueOnce([
+        { taskId: 't1', calledAt: new Date('2026-10-24T14:30:00Z'), mode: 'conversation', goal: 'Tell them about the show.', status: 'voicemail_left', outcome: null },
+      ]);
+      expect(await answer('contact-1')).toContain('Tell them about the show.');
+      expect(recentOutboundCalls).toHaveBeenLastCalledWith('contact-1');
+
+      recentOutboundCalls.mockClear();
+      expect(await answer(undefined)).not.toContain('You called this caller recently');
+      expect(recentOutboundCalls).not.toHaveBeenCalled();
+    } finally {
       config.INBOUND_BOOKING_ENABLED = false;
     }
   });
