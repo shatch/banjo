@@ -192,6 +192,12 @@ describe('a returning caller: recent outbound calls (#129)', () => {
     expect(text).toMatch(/only (to|with) this caller/i);
   });
 
+  // Security review: a live summary held a gate code given on the call.
+  it("never quotes a call's summary, only the voicemail they were left", () => {
+    const talked = { ...voicemail, status: 'conversation_completed' as const, outcome: { kind: 'conversation_completed' as const, summary: 'Gave the gate code 4719.' } };
+    expect(buildRecentCallsGuidance([talked])).not.toContain('4719');
+  });
+
   it('reaches both prompts', () => {
     for (const prompt of [buildInboundSystemPrompt(undefined, { recentCalls: [voicemail] }), buildInboundFrontendPrompt(undefined, { recentCalls: [voicemail] })]) {
       expect(prompt).toContain('Tell Gemma the story about meeting the band.');

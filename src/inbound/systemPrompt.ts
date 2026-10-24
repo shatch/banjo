@@ -64,12 +64,14 @@ function howItEnded(status: Task['status']): string {
   }
 }
 
-/** What they heard, or a summary written from the call: model-written, so only ever quoted as data. */
+/**
+ * The voicemail they were left, already delivered to that number: model-written,
+ * so only ever quoted as data. Never a call's summary: it can hold what was said
+ * on the call (a live one held a gate code), and caller ID can be spoofed.
+ */
 function callDerivedText(call: RecentOutboundCall): string | undefined {
   const outcome = call.outcome;
   if (outcome?.kind === 'voicemail_left') return `The voicemail you left them: ${JSON.stringify(outcome.message)}`;
-  if (outcome?.kind === 'conversation_completed') return `A summary of that call: ${JSON.stringify(outcome.summary)}`;
-  if (outcome?.kind === 'answered' && outcome.summary) return `A summary of that call: ${JSON.stringify(outcome.summary)}`;
   return undefined;
 }
 
@@ -77,9 +79,10 @@ function callDerivedText(call: RecentOutboundCall): string | undefined {
  * A recognized caller's recent calls from Banjo (#129), so one returning a
  * call gets that call, not the booking script. The goal is the owner's own
  * instructions, so it's given as such, but kept private: caller ID is all
- * that identifies them. Anything written from a call (a voicemail, a summary)
- * goes in JSON-quoted and marked as data, like the task webhook's
- * text/outcome split. Empty when there are none.
+ * that identifies them, so server.ts gives these only to a caller ID the
+ * carrier fully attests. A voicemail they were left goes in JSON-quoted and
+ * marked as data, like the task webhook's text/outcome split. Empty when
+ * there are none.
  */
 export function buildRecentCallsGuidance(calls: RecentOutboundCall[]): string {
   if (calls.length === 0) return '';

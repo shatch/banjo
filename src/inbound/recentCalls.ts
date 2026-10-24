@@ -3,6 +3,16 @@ import { db } from '../db/index.js';
 import { logger } from '../lib/logger.js';
 import { callAttempts, tasks, type Task, type TaskOutcome } from '../tasks/schema.js';
 
+/**
+ * Whether the carrier fully vouches for the caller ID: STIR/SHAKEN attestation
+ * A, from Twilio's `StirVerstat` (absent when the call carries no attestation).
+ * Recent calls carry the owner's instructions, and a spoofed caller ID would
+ * otherwise be all it takes to hear them (#129 security review).
+ */
+export function isFullyAttested(stirVerstat: unknown): boolean {
+  return stirVerstat === 'TN-Validation-Passed-A';
+}
+
 /** How far back a returning caller's calls from Banjo are looked up (#129). */
 export const RETURN_CALL_WINDOW_HOURS = 48;
 const MAX_RECENT_CALLS = 3;

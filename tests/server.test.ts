@@ -91,7 +91,8 @@ vi.mock('../src/inbound/callerContext.js', () => ({
 
 // Same reason: the recent-calls lookup (#129) would hit the real DB.
 const recentOutboundCalls = vi.fn(async (_contactId: string) => [] as unknown[]);
-vi.mock('../src/inbound/recentCalls.js', () => ({
+vi.mock('../src/inbound/recentCalls.js', async (importOriginal) => ({
+  isFullyAttested: (await importOriginal<typeof import('../src/inbound/recentCalls.js')>()).isFullyAttested,
   recentOutboundCalls: (contactId: string) => recentOutboundCalls(contactId),
 }));
 
@@ -332,15 +333,32 @@ describe('inbound transfer is limited to recognized callers (#66)', () => {
 });
 
 describe('a returning caller gets their recent calls from Banjo (#129)', () => {
-  async function answer(contactId: string | undefined) {
+  const VERIFIED = { StirVerstat: 'TN-Validation-Passed-A' };
+  async function answer(contactId: string | undefined, overrides: Record<string, string> = VERIFIED) {
     resolveCallerContext.mockResolvedValueOnce({ contactId, greetingContext: undefined } as never);
     await app.request('/telephony/twilio/inbound', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Twilio-Signature': 'valid-signature' },
-      body: inboundWebhookBody(),
+      body: inboundWebhookBody(overrides),
     });
     return sessionOptions.mock.calls.at(-1)![0].systemPrompt;
   }
+
+  // Security review: caller ID can be spoofed, and these calls carry the
+  // owner's instructions. Only a caller ID the carrier fully attests (STIR/SHAKEN A).
+  it('looks up no recent calls for a caller ID without full STIR/SHAKEN attestation', async () => {
+    config.INBOUND_BOOKING_ENABLED = true;
+    try {
+      const unverified: Record<string, string>[] = [{}, { StirVerstat: 'TN-Validation-Passed-B' }, { StirVerstat: 'TN-Validation-Failed-A' }, { StirVerstat: 'No-TN-Validation' }];
+      for (const overrides of unverified) {
+        recentOutboundCalls.mockClear();
+        expect(await answer('contact-1', overrides)).not.toContain('You called this caller recently');
+        expect(recentOutboundCalls).not.toHaveBeenCalled();
+      }
+    } finally {
+      config.INBOUND_BOOKING_ENABLED = false;
+    }
+  });
 
   it("puts a recognized caller's recent calls in the prompt, and never looks any up for an unknown caller", async () => {
     config.INBOUND_BOOKING_ENABLED = true;

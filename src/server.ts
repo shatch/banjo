@@ -7,7 +7,7 @@ import { createCalendarProvider } from './calendar/factory.js';
 import { config } from './config/index.js';
 import { buildInboundCallSessionOptions } from './inbound/callSessionAdapter.js';
 import { resolveCallerContext } from './inbound/callerContext.js';
-import { recentOutboundCalls } from './inbound/recentCalls.js';
+import { isFullyAttested, recentOutboundCalls } from './inbound/recentCalls.js';
 import { createInboundCall } from './inbound/service.js';
 import { buildInboundFrontendPrompt, buildInboundSystemPrompt } from './inbound/systemPrompt.js';
 import { logger } from './lib/logger.js';
@@ -317,8 +317,9 @@ app.post('/telephony/twilio/inbound', async (c) => {
     // principal (#66); resolveCallerContext fails closed to no match.
     const transferAllowed = contactId !== undefined;
     // A caller returning one of Banjo's calls gets that call (#129): only a
-    // recognized caller's own, and the lookup fails closed to none.
-    const recentCalls = contactId !== undefined ? await recentOutboundCalls(contactId) : [];
+    // recognized caller's own, only with a caller ID the carrier fully
+    // attests (it can be spoofed), and the lookup fails closed to none.
+    const recentCalls = contactId !== undefined && isFullyAttested(body.StirVerstat) ? await recentOutboundCalls(contactId) : [];
 
     // Fire-and-forget, matching src/tasks/orchestrator.ts's triggerOrchestration
     // pattern — a phone call runs for real wall-clock minutes, and this HTTP
