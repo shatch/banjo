@@ -26,7 +26,7 @@
     "setup": "tsx scripts/setup.ts"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.4",
+    "@hono/node-server": "^2.1.5",
     "@modelcontextprotocol/sdk": "^1.30.1",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.45.4",
