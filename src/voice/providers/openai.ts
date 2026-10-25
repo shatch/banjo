@@ -590,7 +590,11 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
           // own voicemail tool call still open, the model often said "I've left
           // a voicemail…" instead of the opener. The output still joins the
           // conversation (conversation stays "auto"), so later turns see it.
-          input: [],
+          // One line of input, not none (#214): an empty input failed with a
+          // server_error, saying nothing, in 3 of 33 eval runs' responses.
+          input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: '(Say the message now.)' }] }],
+          // Speech only (#214): with tools, one called leave_voicemail_and_end_call again instead.
+          tool_choice: 'none',
           metadata: { banjo_verbatim: verbatim.eventId },
         },
       }),
