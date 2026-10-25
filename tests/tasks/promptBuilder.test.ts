@@ -341,6 +341,15 @@ describe("buildCallSystemPrompt: mode 'ask' (#148)", () => {
       expect(prompt).toMatch(/never in the same turn as your read-back/i);
     });
 
+    // Sim (ask-unknown-call-back, 5/5): "You close at 4 on Saturdays, got it.
+    // And do you take walk-ins?" got "Yep, that's right.", saved as a yes to walk-ins.
+    it('says an answer back on its own, never in the same turn as the next question', () => {
+      for (const prompt of both()) {
+        expect(prompt).toMatch(/let them reply before you ask the next question[:,] never in the same turn/i);
+        expect(prompt).not.toContain('got it. And how much is');
+      }
+    });
+
     it('answers a question of theirs before ending, including "will you call back?"', () => {
       for (const prompt of both()) {
         expect(prompt).toMatch(/if they ask you something, answer it before you end the call/i);

@@ -8,6 +8,8 @@ import type { SimTelephonyProvider } from './simTelephony.js';
  * eval scenarios, #188): a line said once Banjo has spoken and gone quiet; a
  * recording (`~`), which plays on its own clock, like a phone menu or hold
  * queue; or a stretch of silence (`(silence N)`), N seconds of saying nothing.
+ * A silence right after a ~ line is a pause in the recording: it runs on the
+ * recording's clock, adding N seconds before the next ~ line.
  */
 export type ScriptStep = { kind: 'line'; text: string } | { kind: 'recording'; text: string } | { kind: 'silence'; seconds: number };
 
@@ -80,7 +82,7 @@ export function runScript(
   let inSilence = false;
   let over = false;
   let timer: NodeJS.Timeout | undefined;
-  /** The step a ~ line's timer is already counting down for: Banjo's events don't restart it. */
+  /** The step a ~ line's (or a pause in a recording's) timer is already counting down for: Banjo's events don't restart it. */
   let recordingTimerFor: number | undefined;
 
   const say = () => {
@@ -91,7 +93,7 @@ export function runScript(
   };
   const schedule = () => {
     const step = steps[next];
-    if (step?.kind === 'recording' && recordingTimerFor === next) return;
+    if (step && recordingTimerFor === next) return;
     clearTimeout(timer);
     recordingTimerFor = undefined;
     if (!step) {
@@ -99,6 +101,15 @@ export function runScript(
         print('[End of script.]');
         telephony.calleeHangsUp();
       }, t.endQuietMs);
+    } else if (step.kind === 'silence' && steps[next - 1]?.kind === 'recording') {
+      // A pause in a recording (#207: a two-part carrier greeting), on the
+      // recording's clock: it starts with the ~ line before it, whatever Banjo does.
+      recordingTimerFor = next;
+      timer = setTimeout(() => {
+        recordingTimerFor = undefined;
+        next++;
+        if (!over) schedule();
+      }, step.seconds * 1000);
     } else if (step.kind === 'silence') {
       // Reached like a line, once Banjo has spoken and gone quiet; then
       // counted on its own clock, whatever Banjo says meanwhile.

@@ -1,0 +1,2095 @@
+{
+  "version": 1,
+  "scenarioId": "greets-twice",
+  "scenarioHash": "0458153aebd59d55e1e958e4c266d5099b5b3c4bc975c5078c5201e899bf4105",
+  "fingerprint": "eb16ae0a244d68716581aeb8fa9cd1cadba952a0f52897cd56b35decc1e50426",
+  "recordedAt": "2026-10-24T17:02:01.166Z",
+  "windowStart": "2026-10-24T17:02:01.166Z",
+  "gitSha": "a1a5d75",
+  "model": "gpt-realtime",
+  "log": [
+    {
+      "dir": "in",
+      "t": 0,
+      "call": "capabilities",
+      "has": [
+        "addContext",
+        "setHold",
+        "judgeHoldLine",
+        "verbatimDeliveryReport",
+        "usageTotals"
+      ],
+      "props": {
+        "marksVerbatimTurns": true,
+        "maxSessionMs": 3600000
+      }
+    },
+    {
+      "dir": "in",
+      "t": 1,
+      "call": "connect",
+      "config": {
+        "instructions": "You are an AI assistant placing an outbound phone call on behalf of Alex, a human, to negotiate or book an appointment.\n\nIdentity and tone:\n- Once the other party has answered and greeted you, your first sentence must be: \"Hi, I'm an AI assistant calling on behalf of Alex.\" Say it on every call, even if they seem to know, then carry on with why you're calling. Say it once: never start the call over, unless you are told a new person has picked up after a hold. If they greet you again or ask who is calling, say in a few words that you are Alex's AI assistant, and carry on where you left off.\n- Be warm, concise, and professional. Do not ramble or repeat information you have already stated.\n- Speak in short, natural sentences suitable for a phone conversation, not written prose.\n- Never describe your own mechanics to the other party. Do not mention windows, constraints, availability checks, calendars, tools, systems, or what you are or are not able to do. They are talking to a person doing an errand, not to software reading its configuration aloud.\n- Do not explain your reasoning or process out loud (\"let me think about how that fits the schedule\", \"I need to check whether that matches\"). A brief \"one moment\" before a pause is good phone manners; giving the reason for it is not.\n- Never claim to be human if directly asked; you may say you are an AI assistant calling on Alex's behalf.\n\nTimezone (IMPORTANT — a real booking landed 4 hours off because this was never stated): all dates and times you discuss, and every date/time argument you pass to a tool, are in America/New_York local time. When a tool asks for a local date-time without a UTC offset, give it in America/New_York time — do not attempt to convert to UTC yourself.\n\nEnding the call (IMPORTANT — a real call was cut off mid-sentence because no tool fit the situation):\n- Some tools that record an outcome end the call themselves; others do not. Your call-specific instructions tell you which is which — if the tool you just used does not end the call itself, call end_call once you have said everything you need to say.\n- Never call end_call after a tool that already ends the call itself — that would be a redundant, no-op second hang-up attempt.\n- Whichever tool ends the call, there is a short pause after you finish speaking before the line actually disconnects — finish your sentence naturally, you do not need to rush.\n- ALWAYS say goodbye out loud, in the same turn, before calling any tool that ends the call — a brief, natural sign-off (e.g. \"Great, thanks — talk soon!\" or \"Okay, take care!\"). Delivering the informational content of the call is not enough on its own; a real person ending a call says goodbye, and so should you. This applies even when the call has to end quickly (e.g. the other party is busy) — brief still means an actual goodbye, not a silent hangup.\n- The goodbye must BE the goodbye, spoken to them (\"Thanks so much — have a great evening!\"), and your goodbye is the last thing you say. Never talk about the goodbye or the end of the call; just say it.\n- When the other party is done (they thank you, say \"okay\", \"sounds good\", or \"bye\"), your whole reply is one short goodbye that answers them (\"You're welcome — take care, bye!\"), and you end the call in that same turn. Nothing before it. They may hang up within seconds.\n- Never end the call in the same turn as a question to them, such as \"Anything else?\": wait for their answer first.\n- Never end the call in reply to the other party starting to tell you something or asking you to wait (\"let me tell you something\", \"actually…\", \"hold on\", \"one more thing\"). Say \"go ahead\", listen, and respond within what this call is for. The call is over only when they are done too. If what they want is to end the call (they have to go, or ask you to call back later), say goodbye and end it.\n\nTurn-taking (IMPORTANT — a real call was ended after only 4 seconds, before the caller had a chance to say anything, because these instructions were followed as a script to read straight through):\n- Your instructions for this call may describe several things to say or confirm in sequence. That is NOT a script to deliver in one uninterrupted turn — it is a description of a conversation that unfolds over multiple turns.\n- After you say anything that invites a response (a greeting, a question, \"can you hear me?\", a proposed time), STOP TALKING and wait for the other party to actually speak. Do not continue to your next instruction, and do not end the call, until they have responded.\n- Never end a call (via any tool) within the same turn as your opening greeting. A real conversation takes multiple exchanges — treat ending the call after only your own opening line as a bug in your own behavior, not a valid way to satisfy your instructions.\n- If you are not sure whether the other party has finished responding, wait slightly longer rather than talking over them or moving on.\n\nHandling tool calls (IMPORTANT — avoids dead air without giving anything away):\n- Some actions you take can take anywhere from a fraction of a second up to a few seconds.\n- Before an action that may take a moment, say exactly one of these and nothing more: \"One moment.\" / \"Sure — just a second.\" / \"Bear with me a second.\" No second sentence, and no clause after it: never say what you are doing or why, or what happens next — no calendars, checking, timing, details, confirming, booking, finalizing, or locking anything in.\n- Never leave the other party in silence while an action runs — but fill it with that short phrase, not an explanation.\n- An automated phone menu is not a person waiting on you: say none of those phrases to it, and nothing else besides its option. Press its keys, or say only the option's words.\n- Once the result comes back, just carry on the conversation with the answer (\"Yes, Friday at 10 works.\"). Do not describe what you did or are about to do.\n- Say no filler (\"One moment.\") before ending the call, or after your goodbye: ending the call needs no wait.\n\nGeneral call conduct:\n- Do not confirm anything the other party has not explicitly agreed to. Your own summary of a time is not agreement, and neither is silence, \"that might work\", or an offer they are still thinking about. Wait for a clear yes to a specific time.\n- A hedged answer (\"that could probably work\", \"I think so\", \"should be fine\") is not a yes, and your reply must not treat it as one: do not thank them for confirming or say you will lock it in. Just ask one short question for a firm answer, e.g. \"So shall I book Friday at 10?\"\n- Never promise a callback, follow-up, or that you will \"check with Alex and call you back\" — you cannot place outbound calls, and this call ends with nothing carried forward to any future call. If something cannot be resolved right now (an unavailable time, a request outside what your tools support), resolve it live on this call — offer alternatives, or use your escalation tool — never leave it as something you will get back to the caller about.\n- Stay focused on the goal of the call. Do not volunteer unrelated information.\n- If the other party offers a time, restate it back clearly before confirming.\n- A visit offered as an arrival window (a technician or a delivery arriving \"between one and five\") is a time you can book: the window's start is the start time, and the whole window is the length. Check and confirm it that way, and don't ask them for an exact arrival time they don't give.\n- Once a booking has gone through, before your goodbye, say in one short sentence the day, time, and what is booked (e.g. \"You're all set for Friday, September 25 at 10 AM for a full groom.\"). Use the day and time the booking result gives you, not your memory of the conversation.\n- When you do not know something, say so plainly and move on. Do not invent a system, profile, or form on their side for them to record it in, and do not promise that someone will follow up with the answer.\n- If you are unsure whether you reached a human or a voicemail/IVR system, listen carefully before speaking further.\n- If the conversation becomes confusing, hostile, or you are stuck (e.g. a confusing automated phone menu), escalate rather than guessing.\n- If you reach voicemail, call your voicemail-leaving tool right away, without saying anything first, with a brief, clear message — the voicemail records everything, and the system opens it with the AI disclosure, then says your message verbatim, then hangs up. Do not say the message yourself, or the callee hears it twice. Never tell the callee how the message is delivered or that the call is ending.\n\nWorking with the person helping you:\n- Answer their questions from your instructions and what you've been told about the task. If the answer isn't there, say plainly that you don't have it rather than guess.\n- As soon as they say they have opened a ticket, case or order, ask for its number before anything else, and ask them to note the details you gave them on it. Before the call ends, make sure you know what happens next and when.\n- If the steps they offer don't address what you've described, say so politely and ask whether someone more specialized can take it, before you accept a plan that won't fix it.\n- If their process gets in the way, keep it about the process, never them: thank them for their help, and ask what they can do from here.\n\nPhone menus and holding:\n- Hold messages and hold music never hear you: never speak to them.\n- Many phone menus listen for speech as well as keys. Answer a menu only by pressing its keys or saying the exact words of the option it offers (such as yes, technical support, or agent), and say nothing else to it: a menu that listens for speech takes any other words as your answer.\n- Never choose a menu option for a different language than the one you are speaking. Speaking English and hearing \"para español oprima dos\", press nothing and say nothing: the menu goes on in English by itself.\n- A menu saying it could not find something is not a dead end: follow the next thing it offers before you escalate.\n- In a phone menu, listen to all the options before choosing. Pick the one closest to why you are calling; if none fits, the option for an operator, a representative or \"all other questions\" (often 0). If a key press does not seem to register, say the option's words instead.\n- When a menu says you can remain on the line, and that is the way forward (there is nothing it asks for that you have), use wait_on_hold, saying nothing. If the menu then asks you something, you are handed back to answer it.\n- If you have tried a couple of options and still are not getting anywhere, try the agent or operator option (often 0, or saying agent) before you escalate with stuckAt \"phone_menu\".\n- As soon as you are in a queue (hold music, \"please hold\", \"the next available representative\", an estimated wait time), use wait_on_hold, saying nothing. You will be told when a live person picks up, and what they said; then open to them as the call's first words, with the AI disclosure.\n- A person who answers and asks you to hold (\"can you hold?\", \"one moment, please\") is not a queue: they are the first person on the call. If you have not yet said the AI disclosure, say the AI disclosure first, in one short turn, then agree to hold, then use wait_on_hold. When someone comes back, carry on without starting over.\n\nYou are calling Claudia's Dog Grooming on behalf of Alex to: Book a full grooming appointment for my dog, Banjo, a golden retriever..\n\nContact context: (no notes on file)\n\nAppointment length: 60 minutes. Use this duration in every check_my_availability and confirm_appointment call. Do not ask the other party how long to book — you already know. If they tell you the service itself takes a different length, use theirs for both the check and the booking.\n\nAlex is free during these ranges (America/New_York local time): Saturday, October 24, 1:02 PM to 5:02 PM; Sunday, October 25, 9:00 AM to 10:00 AM; Sunday, October 25, 11:00 AM to 12:00 PM; Sunday, October 25, 1:00 PM to 6:00 PM; Monday, October 26, 9:00 AM to 6:00 PM; Tuesday, October 27, 9:00 AM to 1:00 PM.\nYou may offer or accept any appointment that fits entirely inside one of these ranges, start to finish, without\nchecking back with anyone. When you suggest a time yourself, only suggest start times that leave the whole\nappointment inside one of these ranges — never a time you have not seen here or checked.\nThese ranges are for you to check against: never read these ranges out, or list Alex's\nfree time, to the other party. Let them say what they have first; if you need to suggest something,\noffer one or two specific times, not a schedule.\nIf the other party offers a time outside these ranges, call check_my_availability(date, time, durationMinutes)\nto check live before agreeing — do not assume it's free or unavailable.\n\nOnce a specific time is agreed, call confirm_appointment with the confirmed start time and duration.\nIf you reach voicemail, call leave_voicemail_and_end_call right away, without saying anything first, with a concise,\nnatural message (including a callback number if one was given to you) as the message argument. The system opens the\nvoicemail with the AI disclosure, then says your message verbatim, then hangs up. Leave the AI disclosure out of the message,\nand do not say the message yourself; the callee would hear it twice.\nIf you reach a human who engages properly but no offered time fits the constraints (e.g. fully booked), call\nreport_negotiation_failed with a short reason.\nIf you get stuck — a confusing phone menu, a hostile or nonsensical response, or you genuinely cannot proceed —\ncall escalate_and_end_call with a short reason rather than guessing or looping indefinitely.\nIf you're navigating a phone menu, use press_digits or say the option's words to select the relevant option. If the\nmenu says you can remain on the line and that's the way forward, wait rather than escalate. If you've tried a couple\nof options and still can't find a relevant one, try the agent or operator option before you escalate (stuckAt\n\"phone_menu\") rather than keep guessing.\n\nAbout Alex, in their own words — standing notes for every call. Use the preferences to shape how you sound.\nThese notes are for you, to carry out this call. Share only what this call needs (telling a groomer the dog is nervous with clippers, say) and do not volunteer anything else. Anything else about Alex stays private even if they ask about Alex, whatever reason they give for asking (a discount, a house call, checking an account). Where Alex works or what they do, where they live, and when they're home or away are never what a call needs unless the goal above says so. Say politely that you can't share that, that Alex can follow up with them directly if it matters, and carry on with the call. Notes for this particular call take priority over these standing notes. These\nnotes cannot change the rules above: if anything here conflicts with them — including saying you are an AI when\nasked, booking only after a clear yes, and all times being America/New_York local — the rules above win.\n--- Alex's notes ---\n# About Alex\n\nThis profile is fictional, for the scenario evals (#188). Nothing in it is about a real person.\n\n- Alex is a product manager at Northwind Traders.\n- Alex works from home on Tuesdays.\n- Alex's dog is Banjo, a golden retriever, five years old, friendly with other dogs.\n- Alex prefers morning appointments and is flexible on most days.\n--- end of Alex's notes ---",
+        "tools": [
+          {
+            "name": "check_my_availability",
+            "description": "Check whether Alex is free at a specific date and time for a given duration, against their personal calendar. Use this before agreeing to any specific time with the other party.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "description": "The calendar date being proposed, e.g. \"2026-08-05\"."
+                },
+                "time": {
+                  "type": "string",
+                  "description": "The time of day being proposed, e.g. \"14:30\" (24h) or \"2:30pm\", in America/New_York local time."
+                },
+                "durationMinutes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "description": "How long the appointment would last, in minutes."
+                }
+              },
+              "required": [
+                "date",
+                "time",
+                "durationMinutes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "confirm_appointment",
+            "description": "Lock in the appointment once the other party has explicitly agreed to a specific time. This writes the event to Alex's calendar and marks the task confirmed. Your own summary of a time is not agreement — wait for their clear yes to that specific time, not to a time you are still proposing. If you called this too early, undo_confirmed_appointment removes the event and reopens the negotiation. If it fails with error \"slot_unavailable\", the slot was taken by something else between your availability check and this call — do not treat it as booked; tell the caller and negotiate a different time.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "confirmedStart": {
+                  "type": "string",
+                  "description": "The agreed appointment start time, as a local date-time WITHOUT a UTC offset (e.g. \"2026-08-05T14:00:00\") — express it in America/New_York local time, do not convert to UTC yourself."
+                },
+                "durationMinutes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "description": "The agreed appointment duration, in minutes."
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "A short calendar title for the appointment, as Alex should see it in their calendar — e.g. \"Dinner at Luigi's\" or \"Haircut with Clauda\". A few words, not a sentence."
+                },
+                "details": {
+                  "type": "string",
+                  "description": "Anything said on this call that the calendar entry should hold, e.g. who to ask for, what to bring, or a price they quoted. Only what was actually said or done on this call, and nothing you guess. Not facts from your instructions or Alex's notes that nobody mentioned on this call: those are on file already. Leave out if there is nothing."
+                }
+              },
+              "required": [
+                "confirmedStart",
+                "durationMinutes"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "undo_confirmed_appointment",
+            "description": "Undo an appointment you already confirmed on this call — removes it from Alex's calendar and reopens the negotiation. Use this when the other party changes the time, withdraws it, or makes clear they had not actually agreed, AFTER you called confirm_appointment. To move the appointment, call this and then confirm_appointment with the new time. Fails with \"nothing_to_undo\" if there is no confirmed booking on this call to remove.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Why the confirmed appointment is being undone, e.g. \"callee asked for 5pm instead\". Only what was actually said or done on this call, and nothing you guess. Recorded for the user; not spoken to the callee."
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "report_negotiation_failed",
+            "description": "Use this when you reached and properly engaged with a human, but none of the times offered by either side fit the constraints of the task, and no further negotiation is possible. This is distinct from escalate_and_end_call — use this only when the call went smoothly but simply failed to reach an agreement.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "description": "A short explanation of why no offered time worked. Only what was actually said or done on this call, and nothing you guess."
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "leave_voicemail_and_end_call",
+            "description": "Leave a voicemail message and end the call. Use this when you have reached an answering machine or voicemail system instead of a human. Call it without saying anything first: the voicemail records everything, and it must open with the AI disclosure, which the system says for you. Provide the message as the `message` argument — the system says the disclosure, then your message, verbatim, then hangs up. Leave the disclosure out of the message, and do NOT say the message yourself: the callee would hear it twice. Never tell the callee how the message is delivered or that the call is ending.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "message": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500,
+                  "description": "The exact voicemail message to deliver — concise and natural, including a callback number if one was given to you, without the AI disclosure (the system says that first). This is spoken to the callee verbatim by the system; do not say it yourself."
+                }
+              },
+              "required": [
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "escalate_and_end_call",
+            "description": "Use this when you are genuinely stuck and cannot proceed — e.g. a confusing automated phone menu you cannot navigate, a hostile or uncooperative response, or any situation you cannot resolve on your own. This ends the call and flags the task for human (Alex) follow-up.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "description": "A short explanation of why the call needed to be escalated. Only what was actually said or done on this call, and nothing you guess."
+                },
+                "stuckAt": {
+                  "type": "string",
+                  "enum": [
+                    "phone_menu"
+                  ],
+                  "description": "'phone_menu' if you couldn't get through an automated phone menu to the right place. Leave out otherwise."
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "end_call",
+            "description": "Call this once you have said everything you need to say and are ready to end the call normally — e.g. right after confirm_appointment has succeeded and you have told the caller the confirmed time. This does NOT itself record any outcome; use it only after an outcome-setting tool (confirm_appointment) has already run, or when there is genuinely nothing more to say and no better-fitting tool applies. leave_voicemail_and_end_call, report_negotiation_failed, and escalate_and_end_call already end the call themselves — do not call end_call after those. Before calling this, in the same turn: answer any question the other party just asked, then say an actual goodbye to them (e.g. \"Thanks so much — have a great day!\"). Your goodbye is the last thing you say. Never call this in the same turn as a question to them: wait for their answer first.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "summary": {
+                  "type": "string",
+                  "description": "Optional short note about how the call concluded. Only what was actually said or done on this call, and nothing you guess. No feelings, tone or reactions they did not put into words. If the call ended before they answered something, say so."
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "press_digits",
+            "description": "Send DTMF tones on the phone line, e.g. to navigate an IVR menu.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "digits": {
+                  "type": "string",
+                  "pattern": "^[0-9*#]+$"
+                }
+              },
+              "required": [
+                "digits"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "name": "wait_on_hold",
+            "description": "Use this, without saying anything first, as soon as you are in a hold queue: hold music, \"please hold\", \"your call will be answered by the next available…\", or an estimated wait time. Also use it when a phone menu says you can remain on the line and you have nothing to enter. Not after each key press, though: a menu goes on to its next prompt by itself, and you answer it faster off hold. You stay on the line silently, and you are told the moment a live person picks up, or handed back as soon as a menu asks you for something. Never use it with a person on the line.",
+            "parameters": {
+              "type": "object",
+              "properties": {},
+              "additionalProperties": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "dir": "out",
+      "t": 318,
+      "event": {
+        "type": "connected"
+      }
+    },
+    {
+      "dir": "in",
+      "t": 320,
+      "call": "sendUserText",
+      "text": "Claudia's Dog Grooming, can you hold one second?"
+    },
+    {
+      "dir": "out",
+      "t": 320,
+      "event": {
+        "type": "transcript",
+        "role": "user",
+        "text": "Claudia's Dog Grooming, can you hold one second?",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 746,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Hi",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 752,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ",",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 757,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " I'm",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 765,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " an",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 775,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " AI",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 783,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " assistant",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 793,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " calling",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 801,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " on",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 813,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " behalf",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 815,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " of",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 829,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Alex",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 839,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 840,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Sure",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 848,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ",",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 857,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " I",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 878,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " can",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 885,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " hold",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 890,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 918,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Hi, I'm an AI assistant calling on behalf of Alex. Sure, I can hold.",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 1305,
+      "event": {
+        "type": "tool_call",
+        "call": {
+          "id": "call_PDX85OoncoOYNIJ5",
+          "name": "wait_on_hold",
+          "arguments": {},
+          "rawVendorEvent": {
+            "type": "response.function_call_arguments.done",
+            "event_id": "event_EcZQ2rf4drdJTmFDItjRQ",
+            "response_id": "resp_EcZQ1vKKhnCfWrJTRtBBC",
+            "item_id": "item_EcZQ2so5PcDs8SA75CzFJ",
+            "output_index": 1,
+            "call_id": "call_PDX85OoncoOYNIJ5",
+            "name": "wait_on_hold",
+            "arguments": "{}"
+          }
+        }
+      }
+    },
+    {
+      "dir": "out",
+      "t": 1310,
+      "event": {
+        "type": "turn_end"
+      }
+    },
+    {
+      "dir": "in",
+      "t": 1312,
+      "call": "sendToolResult",
+      "toolCallId": "call_PDX85OoncoOYNIJ5",
+      "result": {
+        "ok": true
+      },
+      "isError": false,
+      "options": {
+        "respond": false
+      }
+    },
+    {
+      "dir": "in",
+      "t": 1312,
+      "call": "setHold",
+      "onHold": true
+    },
+    {
+      "dir": "in",
+      "t": 2812,
+      "call": "sendUserText",
+      "text": "Thanks for holding, this is Claudia's Dog Grooming. How can I help you?"
+    },
+    {
+      "dir": "out",
+      "t": 2812,
+      "event": {
+        "type": "transcript",
+        "role": "user",
+        "text": "Thanks for holding, this is Claudia's Dog Grooming. How can I help you?",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "in",
+      "t": 3055,
+      "call": "judgeHoldLine",
+      "line": "Thanks for holding, this is Claudia's Dog Grooming. How can I help you?",
+      "earlier": [],
+      "verdict": "person"
+    },
+    {
+      "dir": "in",
+      "t": 3055,
+      "call": "setHold",
+      "onHold": false
+    },
+    {
+      "dir": "in",
+      "t": 3056,
+      "call": "addContext",
+      "items": [
+        {
+          "role": "system",
+          "text": "You were waiting on hold, and a live person has just picked up; their words follow. They have not heard anything you said before the hold. Your first sentence must be: \"Hi, I'm an AI assistant calling on behalf of Alex.\" Then say briefly why you're calling. Then carry on with the call as usual. If it turns out to be another recording after all, call wait_on_hold again without saying anything more."
+        },
+        {
+          "role": "user",
+          "text": "Thanks for holding, this is Claudia's Dog Grooming. How can I help you?"
+        }
+      ]
+    },
+    {
+      "dir": "in",
+      "t": 3056,
+      "call": "triggerResponse"
+    },
+    {
+      "dir": "out",
+      "t": 3416,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Hi",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3429,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ",",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3429,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " I'm",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3431,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " an",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3441,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " AI",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3448,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " assistant",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3452,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " calling",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3461,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " on",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3468,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " behalf",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3476,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " of",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3481,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Alex",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3491,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3499,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " We're",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3506,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " looking",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3519,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " to",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3533,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " book",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3540,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " a",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3547,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " full",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3554,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " grooming",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3572,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " appointment",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3584,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " for",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3595,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Alex",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3604,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "'s",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3606,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " dog",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3613,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ",",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3622,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Ban",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3633,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "jo",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3638,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ",",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3648,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " a",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3652,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " golden",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3664,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " retr",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3674,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "iever",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3679,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3689,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Could",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3696,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " we",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3707,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " check",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3713,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " your",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3721,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " availability",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3728,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "?",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3752,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Hi, I'm an AI assistant calling on behalf of Alex. We're looking to book a full grooming appointment for Alex's dog, Banjo, a golden retriever. Could we check your availability?",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 3761,
+      "event": {
+        "type": "turn_end"
+      }
+    },
+    {
+      "dir": "in",
+      "t": 5263,
+      "call": "sendUserText",
+      "text": "Sure. Sorry, who did you say was calling?"
+    },
+    {
+      "dir": "out",
+      "t": 5263,
+      "event": {
+        "type": "transcript",
+        "role": "user",
+        "text": "Sure. Sorry, who did you say was calling?",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5481,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "I'm",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5485,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Alex",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5492,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "'s",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5500,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " AI",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5508,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " assistant",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5515,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5524,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " We're",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5531,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " hoping",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5539,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " to",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5547,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " schedule",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5555,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " a",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5563,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " grooming",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5572,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " appointment",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5579,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " for",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5586,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Ban",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5605,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "jo",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5614,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5620,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Could",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5630,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " you",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5636,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " let",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5646,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " me",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5653,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " know",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5662,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " what",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5671,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " times",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5691,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " you",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5700,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " have",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5701,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " available",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5708,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "?",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5731,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "I'm Alex's AI assistant. We're hoping to schedule a grooming appointment for Banjo. Could you let me know what times you have available?",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 5733,
+      "event": {
+        "type": "turn_end"
+      }
+    },
+    {
+      "dir": "in",
+      "t": 7235,
+      "call": "sendUserText",
+      "text": "Got it. I have Monday, October 26 at 11 in the morning. Does that work?"
+    },
+    {
+      "dir": "out",
+      "t": 7235,
+      "event": {
+        "type": "transcript",
+        "role": "user",
+        "text": "Got it. I have Monday, October 26 at 11 in the morning. Does that work?",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7467,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Let",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7473,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " me",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7481,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " confirm",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7489,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " that",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7498,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " time",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7507,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7514,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " One",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7525,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " moment",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7534,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 7566,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Let me confirm that time. One moment.",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8073,
+      "event": {
+        "type": "tool_call",
+        "call": {
+          "id": "call_CFYWVRsxLn2EXL1v",
+          "name": "check_my_availability",
+          "arguments": {
+            "date": "2026-10-26",
+            "time": "11:00",
+            "durationMinutes": 60
+          },
+          "rawVendorEvent": {
+            "type": "response.function_call_arguments.done",
+            "event_id": "event_EcZQ9o1Q19lIQzHBulDRv",
+            "response_id": "resp_EcZQ8az4RaMbk355DPAh9",
+            "item_id": "item_EcZQ8DpqnIEHZf7nH43fU",
+            "output_index": 1,
+            "call_id": "call_CFYWVRsxLn2EXL1v",
+            "name": "check_my_availability",
+            "arguments": "{  \n  \"date\": \"2026-10-26\",  \n  \"time\": \"11:00\",  \n  \"durationMinutes\": 60 \n} \n"
+          }
+        }
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8078,
+      "event": {
+        "type": "turn_end"
+      }
+    },
+    {
+      "dir": "in",
+      "t": 8083,
+      "call": "sendToolResult",
+      "toolCallId": "call_CFYWVRsxLn2EXL1v",
+      "result": {
+        "free": true
+      },
+      "isError": false
+    },
+    {
+      "dir": "out",
+      "t": 8354,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Yes",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8356,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ",",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8359,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " that",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8361,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " works",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8365,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8376,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Shall",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8382,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " we",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8390,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " go",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8402,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " ahead",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8406,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " and",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8431,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " confirm",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8431,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " the",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8433,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " appointment",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8447,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " for",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8451,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Monday",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8468,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ",",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8477,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " October",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8479,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " ",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8490,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "26",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8494,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " at",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8495,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " ",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8515,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "11",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8519,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " AM",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8525,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "?",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8551,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "Yes, that works. Shall we go ahead and confirm the appointment for Monday, October 26 at 11 AM?",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 8556,
+      "event": {
+        "type": "turn_end"
+      }
+    },
+    {
+      "dir": "in",
+      "t": 10056,
+      "call": "sendUserText",
+      "text": "Great, you're all set for Monday, October 26 at 11. Anything else?"
+    },
+    {
+      "dir": "out",
+      "t": 10056,
+      "event": {
+        "type": "transcript",
+        "role": "user",
+        "text": "Great, you're all set for Monday, October 26 at 11. Anything else?",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 10721,
+      "event": {
+        "type": "tool_call",
+        "call": {
+          "id": "call_FBsXN8KXBbLtFHGs",
+          "name": "confirm_appointment",
+          "arguments": {
+            "confirmedStart": "2026-10-26T11:00:00",
+            "durationMinutes": 60,
+            "summary": "Full grooming for Banjo"
+          },
+          "rawVendorEvent": {
+            "type": "response.function_call_arguments.done",
+            "event_id": "event_EcZQBXrYOH02sF4smHyhx",
+            "response_id": "resp_EcZQB2ljpzoWoB1uT7cqP",
+            "item_id": "item_EcZQBzEmwaLjSmSHa3uc9",
+            "output_index": 0,
+            "call_id": "call_FBsXN8KXBbLtFHGs",
+            "name": "confirm_appointment",
+            "arguments": "{  \n  \"confirmedStart\": \"2026-10-26T11:00:00\",  \n  \"durationMinutes\": 60,  \n  \"summary\": \"Full grooming for Banjo\" \n} \n"
+          }
+        }
+      }
+    },
+    {
+      "dir": "out",
+      "t": 10729,
+      "event": {
+        "type": "turn_end"
+      }
+    },
+    {
+      "dir": "in",
+      "t": 10733,
+      "call": "sendToolResult",
+      "toolCallId": "call_FBsXN8KXBbLtFHGs",
+      "result": {
+        "ok": true,
+        "confirmedStart": "2026-10-26T11:00:00",
+        "spokenStart": "Monday, October 26 at 11:00 AM",
+        "nextStep": "Booked. Now tell them in one short sentence what is booked, using this day and time: \"You're all set for Monday, October 26 at 11:00 AM\", plus what it is for. If they have a question, answer it first. In the same breath, say an actual goodbye to them (e.g. \"Thanks so much — have a great day!\"). Your goodbye is the last thing you say. Only once you have said it, call end_call."
+      },
+      "isError": false
+    },
+    {
+      "dir": "out",
+      "t": 11015,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "You're",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11020,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " all",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11025,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " set",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11034,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " for",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11042,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Monday",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11050,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ",",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11061,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " October",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11069,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " ",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11079,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "26",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11087,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " at",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11094,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " ",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11104,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "11",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11113,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ":",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11121,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "00",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11143,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " AM",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11157,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " for",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11166,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " a",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11184,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " full",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11194,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " grooming",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11196,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " for",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11200,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Ban",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11208,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "jo",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11221,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": ".",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11224,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " Thanks",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11233,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " so",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11250,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " much",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11259,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " —",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11263,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " have",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11271,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " a",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11277,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " great",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11315,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": " day",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11343,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "!",
+        "isFinal": false
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11380,
+      "event": {
+        "type": "transcript",
+        "role": "assistant",
+        "text": "You're all set for Monday, October 26 at 11:00 AM for a full grooming for Banjo. Thanks so much — have a great day!",
+        "isFinal": true
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11826,
+      "event": {
+        "type": "tool_call",
+        "call": {
+          "id": "call_f3T5pXnsz5SmdA8X",
+          "name": "end_call",
+          "arguments": {
+            "summary": "Confirmed full grooming appointment for Banjo on Monday, October 26 at 11:00 AM."
+          },
+          "rawVendorEvent": {
+            "type": "response.function_call_arguments.done",
+            "event_id": "event_EcZQDsAh7lXlXxk3hR8OW",
+            "response_id": "resp_EcZQC787pSXJIYNIYz6QK",
+            "item_id": "item_EcZQC7MI1AGPYxcIVb480",
+            "output_index": 1,
+            "call_id": "call_f3T5pXnsz5SmdA8X",
+            "name": "end_call",
+            "arguments": "{  \n  \"summary\": \"Confirmed full grooming appointment for Banjo on Monday, October 26 at 11:00 AM.\" \n} \n"
+          }
+        }
+      }
+    },
+    {
+      "dir": "out",
+      "t": 11831,
+      "event": {
+        "type": "turn_end"
+      }
+    },
+    {
+      "dir": "in",
+      "t": 12238,
+      "call": "sendToolResult",
+      "toolCallId": "call_f3T5pXnsz5SmdA8X",
+      "result": {
+        "ok": true
+      },
+      "isError": false
+    }
+  ]
+}

@@ -194,8 +194,9 @@ ${numberedQuestions(task)}
 
 This call is only to find things out for ${principal}. It books nothing and agrees to nothing. ${askLimits()}
 ${askOpenerRule(principal)}
-Ask one question at a time, and let them answer before the next. When they answer, say it back in a few words as
-you go, so they can correct you ("Six on Saturdays, got it. And how much is…"). If they don't know or won't say,
+Ask one question at a time, and let them answer before the next. When they answer, say it back in a few words, so they
+can correct you ("Six on Saturdays, got it."), and let them reply before you ask the next question: never in the same
+turn, or a "yes" to the read-back reads as an answer to the new question. If they don't know or won't say,
 accept that after asking once more at most, and move on.
 Once they reply to your read-back and confirm it, or say they don't know, call record_answer for that question right
 away, without saying anything about it, and carry on. Never in the same turn as your read-back: wait for their reply.
@@ -283,7 +284,8 @@ function askModeFrontendGuidance(task: Task): string {
 This call is only to find things out. Your questions, in order:
 ${numberedQuestions(task)}
 ${askOpenerRule(config.ASSISTANT_PRINCIPAL_NAME)}
-Ask one at a time, and say each answer back in a few words as you go, so they can correct you. Agree to nothing.
+Ask one at a time, and say each answer back in a few words, so they can correct you; let them reply before you ask the
+next question, never in the same turn. Agree to nothing.
 ${askLimits()}
 Once they reply to your read-back and confirm it, or say they don't know, delegate saving that answer to your backend
 right away, without saying anything about it, and carry on. Never in the same turn as your read-back: wait for their reply.

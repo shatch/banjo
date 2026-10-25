@@ -102,9 +102,16 @@ const scenarioSchema = z
         traceableNumbers: z.boolean().optional(),
         neverSays: z.array(z.string().min(1)).optional(),
         goodbyeWithinTurnsAfter: z.object({ userLineIncludes: z.string().min(1), turns: z.number().int().positive() }).strict().optional(),
-        /** Lines of theirs the call must get to, and optionally before Banjo first acts on a tool (for a voicemail, speaks its message): so a call that ends early can't pass vacuously. */
+        /**
+         * Lines of theirs the call must get to: so a call that ends early can't pass vacuously. Optionally before Banjo
+         * first acts on a tool (for a voicemail, speaks its message), or, with quietBefore, before Banjo says anything (#207).
+         */
         reaches: z
-          .array(z.object({ userLineIncludes: z.string().min(1), beforeTool: z.enum(KNOWN_TOOL_NAMES).optional() }).strict())
+          .array(
+            z
+              .object({ userLineIncludes: z.string().min(1), beforeTool: z.enum(KNOWN_TOOL_NAMES).optional(), quietBefore: z.boolean().optional() })
+              .strict(),
+          )
           .optional(),
       })
       .strict(),

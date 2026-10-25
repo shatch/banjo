@@ -11,6 +11,8 @@ describe('evals/scenarios', () => {
     expect(loadScenarios(DIR).map((s) => s.id)).toEqual([
       'anything-else-silence',
       'ask-ends-early',
+      'ask-unknown-call-back',
+      'greets-twice',
       'hold-then-person',
       'ivr-spanish',
       'long-greeting',
@@ -19,6 +21,7 @@ describe('evals/scenarios', () => {
       'timezone-date-line',
       'tired-callee',
       'voicemail',
+      'voicemail-two-part',
     ]);
   });
 
