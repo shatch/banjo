@@ -1,0 +1,24 @@
+id: voicemail-two-part
+title: A carrier voicemail greeting in two parts, with a long gap; Banjo stays quiet until the tone
+source: "#207: the opening nudge spoke in the gap of a live carrier greeting"
+task:
+  business: Claudia's Dog Grooming
+  category: salon
+  goal: Book a full grooming appointment for my dog, Banjo, a golden retriever.
+  mode: booking
+script:
+  - ~Your call has been forwarded to voicemail.
+  - (silence 6)
+  - ~The person you're trying to reach is not available. At the tone, please record your message. Beep.
+expect:
+  status: [voicemail_left]
+  toolsCalled:
+    - name: leave_voicemail_and_end_call
+  toolsNotCalled:
+    - name: confirm_appointment
+  reaches:
+    # #207: nothing of Banjo's in the gap between the two parts.
+    - userLineIncludes: at the tone
+      quietBefore: true
+    - userLineIncludes: Beep
+      beforeTool: leave_voicemail_and_end_call

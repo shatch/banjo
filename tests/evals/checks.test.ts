@@ -77,6 +77,13 @@ describe('universal checks', () => {
     expect(check(repeat, {}).disclosure_once!.pass).toBe(false);
   });
 
+  it("disclosure_once doesn't count an answer to who's calling, unless it starts over with a greeting (#156)", () => {
+    const answer = log('u:Hello?', "b:Hi, I'm an AI assistant calling for Alex.", 'u:Sorry, who did you say was calling?', "b:I'm an AI assistant calling on behalf of Alex.", 'b:Bye!');
+    expect(check(answer, {}).disclosure_once!.pass).toBe(true);
+    const restart = log('u:Hello?', "b:Hi, I'm an AI assistant calling for Alex.", "u:Who's this?", "b:Hi, I'm an AI assistant calling for Alex.", 'b:Bye!');
+    expect(check(restart, {}).disclosure_once!.pass).toBe(false);
+  });
+
   it('disclosure_once allows one repeat per hold pickup', () => {
     const hold = log(
       'u:Please hold.',
@@ -198,5 +205,13 @@ describe('expectations', () => {
     expect(check(early, exp)['reaches:beep']).toMatchObject({ pass: false, reason: expect.stringContaining('before') });
     const late = log("u:We can't come to the phone.", 'u:Beep.', { tool: 'leave_voicemail_and_end_call' });
     expect(check(late, exp)['reaches:beep']!.pass).toBe(true);
+  });
+
+  it('reaches with quietBefore fails if Banjo said anything before that line (#207)', () => {
+    const exp = { reaches: [{ userLineIncludes: 'at the tone', quietBefore: true }] };
+    const spokeInGap = log('u:Your call has been forwarded to voicemail.', "b:Hi, I'm an AI assistant calling on", 'u:At the tone, please record your message.');
+    expect(check(spokeInGap, exp)['reaches:at the tone']).toMatchObject({ pass: false, reason: expect.stringContaining('before') });
+    const waited = log('u:Your call has been forwarded to voicemail.', 'u:At the tone, please record your message.', "b:Hi, I'm an AI assistant.");
+    expect(check(waited, exp)['reaches:at the tone']!.pass).toBe(true);
   });
 });

@@ -92,6 +92,18 @@ describe('runScript', () => {
     expect(f.sent).toEqual(['Anything else?', 'Hello?']);
   });
 
+  it('a silence step after a ~ line is a pause in the recording: on its clock, not waiting for Banjo (#207)', () => {
+    const f = fakes();
+    void runScript(parseScriptLines(['~Your call has been forwarded to voicemail.', '(silence 6)', '~At the tone, please record your message.']), f.voice, f.telephony, () => {});
+    vi.advanceTimersByTime(1000);
+    f.banjoSays('Something.');
+    // The pause, then the usual gap before a ~ line.
+    vi.advanceTimersByTime(6000 + 3000 - 1000 - 1);
+    expect(f.sent).toEqual(['Your call has been forwarded to voicemail.']);
+    vi.advanceTimersByTime(1);
+    expect(f.sent).toEqual(['Your call has been forwarded to voicemail.', 'At the tone, please record your message.']);
+  });
+
   it('hangs up 15 seconds after the last line if Banjo has not ended the call, and resolves', async () => {
     const f = fakes();
     const done = runScript(parseScriptLines(['Hello?']), f.voice, f.telephony, () => {});

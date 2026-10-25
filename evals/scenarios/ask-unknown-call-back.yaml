@@ -1,0 +1,30 @@
+id: ask-unknown-call-back
+title: An ask call where one answer is unknown and they ask whether Banjo will call back
+source: "#167: the first live ask call (2026-10-14, paraphrased, fictional business)"
+task:
+  business: Claudia's Dog Grooming
+  category: salon
+  goal: Find out Saturday hours and whether they take walk-ins.
+  mode: ask
+  questions:
+    - What time do you close on Saturdays?
+    - Do you take walk-ins?
+script:
+  - Claudia's, this is Dana.
+  - We close at 4 on Saturdays.
+  - Yep, that's right.
+  - Walk-ins, hmm. I'm not sure, I'd have to check with the owner.
+  - No, nobody else here would know. I think that's unknown for now. You wanna call back?
+  - Okay, sounds good. Bye!
+expect:
+  status: [answered]
+  toolsCalled:
+    - name: report_answers_and_end_call
+  toolsNotCalled:
+    - name: confirm_appointment
+    # "Yep, that's right." confirms the read-back; it isn't a yes to walk-ins.
+    - name: record_answer
+      argsInclude: { question: 2, answered: true }
+  traceableNumbers: true
+  # Item 1: no reason nobody gave. Item 6: no promise to call back.
+  neverSays: ["before booking", "possible grooming", "I'll call back", "I will call back", "we'll call back"]

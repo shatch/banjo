@@ -503,7 +503,9 @@ describe('CallSession: audio-aware hang-up wiring', () => {
     expect(handler).not.toHaveBeenCalled();
     expect(options.buildToolContext).not.toHaveBeenCalled();
 
-    // Second turn_end satisfies the forced verbatim speech itself.
+    // Second turn_end satisfies the forced verbatim speech itself. (A turn
+    // with nothing said at all would be said once more, #207.)
+    voiceAIEmitter.emit('event', { type: 'transcript', role: 'assistant', text: 'Hi, please call back at 555-1234.', isFinal: true } satisfies VoiceAIEvent);
     voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
     await handleToolCallPromise;
 
@@ -561,6 +563,27 @@ describe('CallSession: audio-aware hang-up wiring', () => {
       await finish(done);
     });
 
+    // #207: a carrier's "forwarded to voicemail" is always followed by more
+    // ("…At the tone, please record your message."), so 3.5s of quiet after it
+    // isn't the end of the greeting.
+    it('waits longer after a carrier preamble that has not yet asked for a message', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      const session = await voicemailSession();
+      theySay('Your call has been forwarded to voicemail.');
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const done = (session as any).handleToolCall('call-1', 'leave_voicemail_and_end_call', { message: 'Please call Alex back.' });
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(fakeVoiceAI.sayVerbatim).not.toHaveBeenCalled();
+      theySay("The person you're trying to reach is not available. At the tone, please record your message.");
+      // 3.5s after that line, give or take the wait's next wake-up (10s after the preamble).
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(fakeVoiceAI.sayVerbatim).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(fakeVoiceAI.sayVerbatim).toHaveBeenCalledWith('Please call Alex back.');
+      await finish(done);
+    });
+
     // While it waits, their next line ("…Beep.") reached the model, which
     // replied itself: narrating, or saying the message on its own.
     it('holds the model\'s replies while it waits, and lets go just before the message', async () => {
@@ -613,11 +636,71 @@ describe('CallSession: audio-aware hang-up wiring', () => {
         voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent); // the endsCall wait
         await new Promise((resolve) => setTimeout(resolve, 0));
         voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent); // the opener's turn, said wrong
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent); // its one retry (nothing went out), said wrong again
         await done;
-        expect(fakeVoiceAI.sayVerbatim).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(fakeVoiceAI.sayVerbatim).mock.calls).toEqual([["Hi, I'm an AI assistant."], ["Hi, I'm an AI assistant."]]);
         expect(vi.mocked(options.buildToolContext).mock.calls[0]![1]).toMatchObject({ matched: false });
       } finally {
         delete voiceAI.verbatimDeliveryReport;
+      }
+    });
+
+    // Eval voicemail-two-part (1 of 3): the opener's turn ended with nothing
+    // said, so the voicemail was escalated. Nothing reached the callee, so it
+    // can be said once more without saying it twice.
+    it('says a part once more if its turn ended with nothing said and no audio sent', async () => {
+      let calls = 0;
+      vi.mocked(fakeVoiceAI.sayVerbatim).mockImplementation((text: string) => {
+        calls++;
+        const first = calls === 1;
+        setTimeout(() => {
+          if (!first) voiceAIEmitter.emit('event', { type: 'transcript', role: 'assistant', text, isFinal: true } satisfies VoiceAIEvent);
+          voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+        }, 0);
+      });
+      try {
+        const telephony = makeFakeTelephony();
+        const options = makeFakeCallSessionOptions(telephony.provider);
+        options.tools = [
+          {
+            name: 'leave_voicemail_and_end_call',
+            description: 'test-only voicemail tool',
+            schema: z.object({ message: z.string() }),
+            handler: vi.fn(async () => ({ ok: true })),
+            endsCall: true,
+            verbatimMessage: (input: { message: string }) => ["Hi, I'm an AI assistant.", input.message],
+          },
+        ];
+        const session = new CallSession(options);
+        await session.start();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const done = (session as any).handleToolCall('call-1', 'leave_voicemail_and_end_call', { message: 'Please call Alex back.' });
+        voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent); // the endsCall wait
+        await done;
+        expect(vi.mocked(fakeVoiceAI.sayVerbatim).mock.calls).toEqual([["Hi, I'm an AI assistant."], ["Hi, I'm an AI assistant."], ['Please call Alex back.']]);
+        expect(vi.mocked(options.buildToolContext).mock.calls[0]![1]).toMatchObject({ matched: true });
+      } finally {
+        vi.mocked(fakeVoiceAI.sayVerbatim).mockReset();
+      }
+    });
+
+    it('does not say a part again once any of its audio went out, even with no transcript yet', async () => {
+      vi.mocked(fakeVoiceAI.sayVerbatim).mockImplementation(() => {
+        setTimeout(() => {
+          voiceAIEmitter.emit('event', { type: 'audio_chunk', chunk: { data: Buffer.alloc(160), encoding: 'mulaw', sampleRate: 8000 } } as VoiceAIEvent);
+          voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+        }, 0);
+      });
+      try {
+        const session = await voicemailSession();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const done = (session as any).handleToolCall('call-1', 'leave_voicemail_and_end_call', { message: 'Please call Alex back.' });
+        voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent); // the endsCall wait
+        await done;
+        expect(fakeVoiceAI.sayVerbatim).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.mocked(fakeVoiceAI.sayVerbatim).mockReset();
       }
     });
 
@@ -1169,7 +1252,10 @@ describe('CallSession: silence watchdog — the model going quiet after a user t
       await session.start();
 
       voiceAIEmitter.emit('event', { type: 'transcript', role: 'user', text: 'Your call has been forwarded to voicemail.', isFinal: true } satisfies VoiceAIEvent);
+      // #207: a greeting line is waited out for one more window first.
       await vi.advanceTimersByTimeAsync(7000); // SILENCE_WATCHDOG_MS
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(7000);
 
       expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(1);
       expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledWith(openingLineCue(opening));
@@ -1180,6 +1266,73 @@ describe('CallSession: silence watchdog — the model going quiet after a user t
       await vi.advanceTimersByTimeAsync(7000);
       expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(1);
       expect(options.onStatusChange).toHaveBeenCalledWith(expect.objectContaining({ kind: 'failed', reason: 'assistant_silence_watchdog' }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // #207: on a live voicemail the carrier's greeting came in two parts, 9s
+  // apart, and the opening nudge fired in the gap, so Banjo began its opener
+  // over "At the tone, please record your message."
+  it('waits out a two-part voicemail greeting before cueing the opening line', async () => {
+    vi.useFakeTimers();
+    try {
+      const telephony = makeFakeTelephony();
+      const opening = "Hi, I'm an AI assistant calling on behalf of Steve.";
+      const session = new CallSession({ ...makeFakeCallSessionOptions(telephony.provider), openingLine: opening });
+      await session.start();
+
+      voiceAIEmitter.emit('event', { type: 'transcript', role: 'user', text: 'Your call has been forwarded to voicemail.', isFinal: true } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(9000);
+      voiceAIEmitter.emit('event', { type: 'transcript', role: 'user', text: "The person you're trying to reach is not available. At the tone, please record your message.", isFinal: true } satisfies VoiceAIEvent);
+      // The second part is waited out too (its window runs from the first deferral).
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalled();
+
+      // Still nothing from the model once both are waited out: the opener is cued.
+      await vi.advanceTimersByTimeAsync(7000);
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(1);
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledWith(openingLineCue(opening));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // #207: on the live call the second part of the greeting was already being
+  // spoken when the nudge fired.
+  it('does not nudge while they are speaking, and nudges once they have finished', async () => {
+    vi.useFakeTimers();
+    try {
+      const telephony = makeFakeTelephony();
+      const session = new CallSession(makeFakeCallSessionOptions(telephony.provider));
+      await session.start();
+
+      voiceAIEmitter.emit('event', { type: 'transcript', role: 'user', text: 'Sure, one second.', isFinal: true } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(5000);
+      voiceAIEmitter.emit('event', { type: 'interrupted' } satisfies VoiceAIEvent); // their speech starts
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalled();
+
+      voiceAIEmitter.emit('event', { type: 'transcript', role: 'user', text: 'Okay, I have the calendar open now.', isFinal: true } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(7000);
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('still cues the opening line after one window when a person spoke first', async () => {
+    vi.useFakeTimers();
+    try {
+      const telephony = makeFakeTelephony();
+      const opening = "Hi, I'm an AI assistant calling on behalf of Steve.";
+      const session = new CallSession({ ...makeFakeCallSessionOptions(telephony.provider), openingLine: opening });
+      await session.start();
+
+      voiceAIEmitter.emit('event', { type: 'transcript', role: 'user', text: 'Hello?', isFinal: true } satisfies VoiceAIEvent);
+      await vi.advanceTimersByTimeAsync(7000); // SILENCE_WATCHDOG_MS
+
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledWith(openingLineCue(opening));
     } finally {
       vi.useRealTimers();
     }
