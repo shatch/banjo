@@ -356,6 +356,29 @@ It's set only from places you control, never by an MCP tool. Agents read call tr
 
   Use `'friend'` for a friend, or `null` to clear it. Takes effect on the next call, with no restart.
 
+## Phone-line fixtures (#205)
+
+The sim can't test audio, so voicemail, phone-menu and hold fixes need a real call. These fixtures are
+Twilio Functions on a Twilio number of our own (`fixtures/twilio/`), so a test call reaches no one's
+phone:
+
+| Fixture | What it plays | What `fixtures:call` checks |
+| --- | --- | --- |
+| `voicemail` | A greeting, then `<Record>` with its beep | `voicemail_left`; the recording opens with the AI disclosure, said once |
+| `ivr` | A menu with a Spanish option first (#204), taking a key or speech | Chose 1, by key press; never 2; opened to the person with the disclosure |
+| `hold` | "Can you hold?", hold messages, then a person | Opened to the person with the disclosure; not `failed` |
+
+**Setup, once.** Buy a number in the Twilio console or API (about $1.15 a month), then set in `.env`:
+`FIXTURE_PHONE_NUMBER`, `FIXTURE_PHONE_NUMBER_SID`, and, after `npm run fixtures:deploy`, the
+`FIXTURE_FUNCTIONS_DOMAIN` it prints. Never commit the number. Deploy again after changing a fixture.
+
+**A run.** Set `BANJO_MCP_URL` (the Banjo under test, ending `/mcp`) and `BANJO_MCP_KEY` (its
+`MCP_API_KEY`), then `npm run fixtures:call -- voicemail` (or `ivr`, `hold`). It points the number at
+that fixture, has Banjo call it through `place_call`, waits for the outcome, transcribes what the
+fixture recorded with OpenAI, deletes the recordings, and prints each check. It exits non-zero on a
+failure. Each run is a real call from Banjo: it counts against the per-number cap (3 in 24 hours), so
+add the fixture number to `CALL_CAP_BUSINESS_NUMBERS` on the Banjo you test to run more.
+
 ## Cutting a release
 
 A release is a `vX.Y.Z` tag on `main`. The tag builds and publishes the multi-arch image
