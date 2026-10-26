@@ -7,6 +7,7 @@
  */
 import type { TextVoiceAIProvider } from '../sim/simCall.js';
 import type {
+  AnswerVerdict,
   AudioChunk,
   HoldVerdict,
   VerbatimDeliveryReport,
@@ -16,7 +17,7 @@ import type {
 } from '../voice/types.js';
 
 /** The optional methods CallSession checks for before using: a recording keeps which ones the session had. */
-export const OPTIONAL_METHODS = ['addContext', 'setHold', 'judgeHoldLine', 'verbatimDeliveryReport', 'usageTotals'] as const;
+export const OPTIONAL_METHODS = ['addContext', 'setHold', 'judgeHoldLine', 'judgeFirstLine', 'verbatimDeliveryReport', 'usageTotals'] as const;
 /** The optional flags CallSession reads off the provider. */
 export const OPTIONAL_PROPS = ['emitsInterruptions', 'transcriptsLate', 'marksVerbatimTurns', 'maxSessionMs'] as const;
 
@@ -33,6 +34,7 @@ export type LogEntry =
   | In<'setHold', { onHold: boolean }>
   | In<'interrupt'>
   | In<'judgeHoldLine', { line: string; earlier: string[]; verdict: HoldVerdict }>
+  | In<'judgeFirstLine', { line: string; earlier: string[]; verdict: AnswerVerdict }>
   | In<'verbatimDeliveryReport', { report: VerbatimDeliveryReport | undefined }>
   /** Not a voice call: the other party hanging up, which the eval run logs so a replay can do the same. */
   | In<'calleeHangsUp'>
@@ -52,6 +54,7 @@ export class RecordingVoiceAI implements TextVoiceAIProvider {
   declare addContext?: (items: { role: 'system' | 'user'; text: string }[]) => void;
   declare setHold?: (onHold: boolean) => void;
   declare judgeHoldLine?: (line: string, earlier: string[]) => Promise<HoldVerdict>;
+  declare judgeFirstLine?: (line: string, earlier: string[]) => Promise<AnswerVerdict>;
   declare verbatimDeliveryReport?: () => VerbatimDeliveryReport | undefined;
   declare usageTotals?: () => { inputTokens: number; cachedInputTokens: number; outputTokens: number };
 
@@ -81,6 +84,13 @@ export class RecordingVoiceAI implements TextVoiceAIProvider {
       this.judgeHoldLine = async (line, earlier) => {
         const verdict = await inner.judgeHoldLine!(line, earlier);
         this.record({ call: 'judgeHoldLine', line, earlier: [...earlier], verdict });
+        return verdict;
+      };
+    }
+    if (inner.judgeFirstLine) {
+      this.judgeFirstLine = async (line, earlier) => {
+        const verdict = await inner.judgeFirstLine!(line, earlier);
+        this.record({ call: 'judgeFirstLine', line, earlier: [...earlier], verdict });
         return verdict;
       };
     }

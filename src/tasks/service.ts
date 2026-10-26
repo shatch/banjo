@@ -213,6 +213,26 @@ export async function holdForScreening(taskId: string, reason: string, approvalE
   return row;
 }
 
+/** At most this many follow-up requests per task (#160): bounded, since each reaches the owner. */
+export const MAX_FOLLOW_UPS = 5;
+
+/**
+ * Appends one request the other party asked to have passed on to the
+ * principal (#160), as note_follow_up saved it. Resolves false if the task
+ * doesn't exist or already has MAX_FOLLOW_UPS. Not a transition, for the
+ * same reasons as saveCollectedAnswer: it must outlast whatever ends the
+ * call, and mustn't touch updatedAt. Appended in the UPDATE itself, so two
+ * saved at once both land.
+ */
+export async function saveFollowUp(taskId: string, request: string): Promise<boolean> {
+  const rows = await db
+    .update(tasks)
+    .set({ followUps: sql`coalesce(${tasks.followUps}, '[]'::jsonb) || jsonb_build_array(${request}::text)` })
+    .where(and(eq(tasks.id, taskId), sql`jsonb_array_length(coalesce(${tasks.followUps}, '[]'::jsonb)) < ${MAX_FOLLOW_UPS}`))
+    .returning({ id: tasks.id });
+  return rows.length > 0;
+}
+
 /**
  * Cancels a phone task whose call hasn't been placed yet — typically one
  * scheduled for later with place_call's scheduledFor. A task already on a

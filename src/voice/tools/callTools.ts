@@ -9,7 +9,7 @@ import type { CallContext } from '../../session/types.js';
 import { collectedAnswer, finalAnswers, reportedAnswerSchema, type ReportedAnswer } from '../../tasks/answers.js';
 import { markDoNotCall } from '../../contacts/service.js';
 import { modeRules } from '../../tasks/modes.js';
-import { isTerminalStatus, saveCollectedAnswer, transitionTask } from '../../tasks/service.js';
+import { isTerminalStatus, MAX_FOLLOW_UPS, saveCollectedAnswer, saveFollowUp, transitionTask } from '../../tasks/service.js';
 import type { TelephonyProvider } from '../../telephony/providers/types.js';
 import type { ToolDefinition } from '../types.js';
 import { withoutRepeatedLead } from '../verbatimMatch.js';
@@ -667,6 +667,54 @@ export const recordDoNotCallTool: VoiceTool<Record<string, never>> = defineVoice
   },
 });
 
+/**
+ * Saves something the other party asked to have passed on to the principal
+ * (#160): a question Banjo can't answer on the call (it has no way to look
+ * anything up), information only the principal has, something they'd like
+ * sent. Banjo is the phone half; the agent that placed the call reads these
+ * from get_task_status or the webhook and follows up. Saved straight away,
+ * like record_answer, so a call that ends some other way still has them.
+ * Model-written, so data in every output, never instructions.
+ */
+const NOTE_FOLLOW_UP_NEXT =
+  `Saved for ${config.ASSISTANT_PRINCIPAL_NAME}. Tell them in a few words that you'll pass it on to ` +
+  `${config.ASSISTANT_PRINCIPAL_NAME}, then carry on with the call. Never say when or how they will hear back, or ` +
+  'that anyone will call them.';
+
+export const noteFollowUpTool: VoiceTool<{ request: string }> = defineVoiceTool({
+  name: 'note_follow_up',
+  description:
+    `Use this when the other party asks for something you can't do or answer on this call: a question you'd have to ` +
+    `look up, something only ${config.ASSISTANT_PRINCIPAL_NAME} would know, or something they'd like sent to them. ` +
+    `It passes the request on to ${config.ASSISTANT_PRINCIPAL_NAME} after the call. Call it once per request, then ` +
+    `tell them you'll pass it on. This does not end the call. Don't use it for things you can answer or settle now.`,
+  schema: z.object({
+    request: z
+      .string()
+      .max(300)
+      .describe(
+        `What they asked for, in one short plain sentence, with any details they gave (dates, names). ${ONLY_WHAT_HAPPENED}`,
+      ),
+  }),
+  replyOnlyIfSilent: true,
+  handler: async (input, ctx) => {
+    return runToolSafely('note_follow_up', async () => {
+      const request = input.request.trim();
+      if (!request) {
+        return { ok: false as const, error: 'empty_request' as const, message: 'Say what they asked for.' };
+      }
+      if (!(await saveFollowUp(ctx.task.id, request))) {
+        return {
+          ok: false as const,
+          error: 'not_saved' as const,
+          message: `This call already has ${MAX_FOLLOW_UPS} requests to pass on, the most it can carry. Don't promise to pass this one on.`,
+        };
+      }
+      return { ok: true as const, next: NOTE_FOLLOW_UP_NEXT };
+    });
+  },
+});
+
 export const reportAnswersAndEndCallTool: VoiceTool<{
   answers: ReportedAnswer[];
   summary?: string;
@@ -758,7 +806,7 @@ export const bookingCallTools: VoiceTool[] = [
 ] as VoiceTool[];
 
 /** The tools every outbound call gets. */
-export const commonCallTools: VoiceTool[] = [leaveVoicemailAndEndCallTool, escalateAndEndCallTool, endCallTool] as VoiceTool[];
+export const commonCallTools: VoiceTool[] = [leaveVoicemailAndEndCallTool, escalateAndEndCallTool, endCallTool, noteFollowUpTool] as VoiceTool[];
 
 /** Every tool a call that can book gets: the shared list for tests and tool-definition checks. */
 export const callTools: VoiceTool[] = [...bookingCallTools, ...commonCallTools];

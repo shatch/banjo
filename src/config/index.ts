@@ -213,7 +213,8 @@ const envSchema = z
     // only, since the body carries the call's outcome, except to localhost or
     // a single-label host such as a Docker Compose service name (`hermes`),
     // which never leaves the machine's own network. That exception sends the
-    // outcome unencrypted across the Docker network; see issue #115.
+    // outcome unencrypted across the Docker network; see issue #115 and the TLS
+    // sidecar in docs/AGENT_SETUP.md.
     TASK_WEBHOOK_URL: optionalSetting(
       z
         .string()

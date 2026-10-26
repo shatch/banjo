@@ -5,7 +5,7 @@ import type { CallSessionOptions } from '../session/callSession.js';
 import type { CallContext } from '../session/types.js';
 import { config, disclosureLine, disclosureLineWithoutNotice } from '../config/index.js';
 import { logger } from '../lib/logger.js';
-import { buildOutcomeSummary, withDisclosureNote, withSavedAnswers } from '../notifications/channel.js';
+import { buildOutcomeSummary, withDisclosureNote, withFollowUps, withSavedAnswers } from '../notifications/channel.js';
 import type { DisclosureResult } from '../session/disclosure.js';
 import { createNotificationChannel, sendOwnerMessage } from '../notifications/owner.js';
 import { buildWebhookText, sendTaskWebhook } from '../notifications/webhook.js';
@@ -55,7 +55,11 @@ export async function notifyTaskOutcome(taskId: string, disclosure?: DisclosureR
   // An ask call that ended some other way keeps its own outcome; the answers
   // it saved before that go with it (#148 review).
   const saved = modeRules(current).asks && outcome.kind !== 'answered' ? collectedAnswersFor(current) : [];
-  const summary = withDisclosureNote(withSavedAnswers(buildOutcomeSummary(contact, outcome), contact, saved), disclosure);
+  const followUps = current.followUps ?? [];
+  const summary = withDisclosureNote(
+    withFollowUps(withSavedAnswers(buildOutcomeSummary(contact, outcome), contact, saved), followUps),
+    disclosure,
+  );
   // Built inside the async function, not as an argument: an exception while
   // building the event then rejects this promise, which allSettled holds,
   // instead of throwing before allSettled runs and skipping the owner's
@@ -68,8 +72,9 @@ export async function notifyTaskOutcome(taskId: string, disclosure?: DisclosureR
       status: current.status,
       outcome,
       contact: { id: contact.id, name: contact.displayName },
-      text: buildWebhookText(contact, outcome, disclosure, saved),
+      text: buildWebhookText(contact, outcome, disclosure, saved, followUps.length),
       finishedAt: current.updatedAt.toISOString(),
+      ...(followUps.length ? { followUps } : {}),
     });
   };
   const notifyOwner = () => createNotificationChannel().notify(current.id, outcome, summary);
@@ -240,6 +245,7 @@ export function buildOutboundCallSessionOptions(params: {
     openingLine: disclosureLine(),
     // Nothing is recorded after a hold (#151), so no notice in the reopening.
     pickupLine: disclosureLineWithoutNotice(),
+    judgeFirstLine: true,
     ...(task.constraints?.maxHoldMinutes ? { maxHoldMs: task.constraints.maxHoldMinutes * 60_000 } : {}),
 
     // #151: the owner hears when a hold starts and when someone picks up. A
@@ -304,6 +310,11 @@ export function buildOutboundCallSessionOptions(params: {
           break;
         case 'answering_machine_detected':
           await updateCallAttempt(callAttempt.id, { answeredBy: patch.answeredBy });
+          break;
+        case 'answer_judged':
+          // #187: Banjo's own verdict, in the column Twilio's AMD left empty
+          // since #32. A second judgment of an unclear first line replaces it.
+          await updateCallAttempt(callAttempt.id, { answeredBy: patch.verdict });
           break;
         case 'recording_started':
           await updateCallAttempt(callAttempt.id, { recordingSid: patch.recordingId });

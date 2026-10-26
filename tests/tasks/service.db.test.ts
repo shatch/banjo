@@ -365,3 +365,47 @@ describe('transitionTask notAwaitingApproval (#150 review)', () => {
     expect(await service.transitionTask(task.id, 'checking_availability', undefined, { from: ['pending'], notAwaitingApproval: true })).toMatchObject({ status: 'checking_availability' });
   });
 });
+
+describe('saveFollowUp (#160)', () => {
+  async function conversationTask(phoneNumber: string) {
+    const [contact] = await db.insert(contacts).values({ displayName: 'Gemma', phoneNumber }).returning();
+    const task = await service.createTask({
+      contactId: contact.id,
+      channel: 'phone',
+      goalDescription: 'Catch up',
+      constraints: {},
+      mode: 'conversation',
+    });
+    return service.transitionTask(task.id, 'negotiating');
+  }
+
+  it('appends each request in order, without touching status, outcome or updatedAt', async () => {
+    const task = await conversationTask('+15551230201');
+
+    expect(await service.saveFollowUp(task.id, 'Events in San Juan the week of the 9th.')).toBe(true);
+    expect(await service.saveFollowUp(task.id, 'The name of that restaurant.')).toBe(true);
+
+    const row = await service.getTask(task.id);
+    expect(row?.followUps).toEqual(['Events in San Juan the week of the 9th.', 'The name of that restaurant.']);
+    expect(row?.status).toBe('negotiating');
+    expect(row?.outcome).toBeNull();
+    expect(row?.updatedAt.getTime()).toBe(task.updatedAt.getTime());
+  });
+
+  it('keeps every request when several are saved at once', async () => {
+    const task = await conversationTask('+15551230202');
+
+    await Promise.all(['A', 'B', 'C'].map((r) => service.saveFollowUp(task.id, r)));
+
+    expect((await service.getTask(task.id))?.followUps?.slice().sort()).toEqual(['A', 'B', 'C']);
+  });
+
+  it('stops at MAX_FOLLOW_UPS requests per task, and reports a missing task', async () => {
+    const task = await conversationTask('+15551230203');
+    for (let i = 1; i <= service.MAX_FOLLOW_UPS; i++) expect(await service.saveFollowUp(task.id, `R${i}`)).toBe(true);
+
+    expect(await service.saveFollowUp(task.id, 'One too many')).toBe(false);
+    expect((await service.getTask(task.id))?.followUps).toHaveLength(service.MAX_FOLLOW_UPS);
+    expect(await service.saveFollowUp('00000000-0000-0000-0000-000000000000', 'x')).toBe(false);
+  });
+});

@@ -198,6 +198,15 @@ export interface VoiceAIProvider {
    */
   judgeHoldLine?(line: string, earlier: string[]): Promise<HoldVerdict>;
   /**
+   * Who answered an outbound call (#187), from a line the other party said
+   * right after pickup: a live person, a voicemail greeting, an automated
+   * phone system, or too unclear to tell. Judged outside the conversation
+   * like judgeHoldLine, with no audio. `earlier` is what they said before it.
+   * Resolves 'uncertain' if the judgment fails: that changes nothing on the
+   * call, so a failed check costs nothing.
+   */
+  judgeFirstLine?(line: string, earlier: string[]): Promise<AnswerVerdict>;
+  /**
    * Adds lines to the conversation without prompting a reply (#151): a fixed
    * system note, or what the other party said, as a user line. Unlike a
    * triggerResponse() cue, it keeps the session's instructions in force and
@@ -218,3 +227,6 @@ export interface VoiceAIProvider {
 
 /** What a line heard on hold is (VoiceAIProvider.judgeHoldLine, #151). */
 export type HoldVerdict = 'person' | 'menu' | 'recording';
+
+/** Who answered an outbound call (VoiceAIProvider.judgeFirstLine, #187). */
+export type AnswerVerdict = 'human' | 'voicemail' | 'ivr' | 'uncertain';

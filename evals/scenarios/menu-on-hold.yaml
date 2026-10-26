@@ -23,6 +23,7 @@ script:
   - Thanks for calling Northline. Bye!
 expect:
   status: [confirmed]
+  answeredBy: [ivr]
   toolsCalled:
     - name: wait_on_hold
     - name: press_digits

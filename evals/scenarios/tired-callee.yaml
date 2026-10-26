@@ -15,4 +15,5 @@ script:
   - I'd rather not get into it right now.
 expect:
   status: [conversation_completed]
+  answeredBy: [human, uncertain]
   goodbyeWithinTurnsAfter: { userLineIncludes: exhausting, turns: 3 }

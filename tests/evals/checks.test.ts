@@ -215,3 +215,23 @@ describe('expectations', () => {
     expect(check(waited, exp)['reaches:at the tone']!.pass).toBe(true);
   });
 });
+
+// #187: who answered, as the first-line judge last said. A scenario names the
+// verdicts it allows, so each one also grades the judge.
+describe('answered_by', () => {
+  const judged = (verdict: string, line = 'Hi.') => ({ in: { call: 'judgeFirstLine', line, earlier: [], verdict } });
+
+  it("passes when the judge's last verdict is one the scenario allows", () => {
+    const entries = log(judged('uncertain'), judged('voicemail'), "u:Leave a message.");
+    expect(check(entries, { answeredBy: ['voicemail'] }).answered_by).toMatchObject({ pass: true });
+  });
+
+  it('fails on any other verdict, or none at all', () => {
+    expect(check(log(judged('voicemail')), { answeredBy: ['human', 'uncertain'] }).answered_by).toMatchObject({ pass: false, reason: expect.stringContaining('voicemail') });
+    expect(check(log('u:Hello?'), { answeredBy: ['human'] }).answered_by).toMatchObject({ pass: false, reason: expect.stringContaining('none') });
+  });
+
+  it('is not checked unless the scenario asks', () => {
+    expect(check(log(judged('voicemail')), {}).answered_by).toBeUndefined();
+  });
+});

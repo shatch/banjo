@@ -1,5 +1,5 @@
 {
-  "id": "c144c31a-f6f2-493b-ae0b-42a354631c32",
+  "id": "77b9c22c-da58-4410-b472-6f6bcb3a5c13",
   "prevId": "974bd507-54cd-441a-b002-38f4c91ebb88",
   "version": "7",
   "dialect": "postgresql",
@@ -70,12 +70,6 @@
           "name": "relationship_tier",
           "type": "relationship_tier",
           "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "do_not_call_at": {
-          "name": "do_not_call_at",
-          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
@@ -286,6 +280,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "follow_ups": {
+          "name": "follow_ups",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "task_status",
@@ -336,19 +336,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": false
-        },
-        "requested_by_agent": {
-          "name": "requested_by_agent",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "screen_flag": {
-          "name": "screen_flag",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",

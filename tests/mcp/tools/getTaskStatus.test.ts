@@ -15,6 +15,7 @@ function task(overrides: Record<string, unknown>) {
     outcome: null,
     questions: null,
     collectedAnswers: null,
+    followUps: null,
     scheduledFor: null,
     updatedAt: new Date('2026-10-13T17:25:09Z'),
     ...overrides,
@@ -66,6 +67,16 @@ describe('mcp: get_task_status', () => {
 
 describe('mcp: get_task_status, approval of an agent\'s call', () => {
   const expiresAt = new Date('2026-10-15T01:30:00Z');
+  it('returns what the other party asked to have passed on, in any mode (#160)', async () => {
+    getTask.mockResolvedValue(task({ mode: 'conversation', status: 'conversation_completed', followUps: ['Events in San Juan.'] }));
+    expect(await getTaskStatusHandler({ taskId: TASK_ID })).toMatchObject({ followUps: ['Events in San Juan.'] });
+  });
+
+  it('leaves followUps out when there are none', async () => {
+    getTask.mockResolvedValue(task({}));
+    expect(await getTaskStatusHandler({ taskId: TASK_ID })).not.toHaveProperty('followUps');
+  });
+
   it('leaves approval out of a call that never needed it', async () => {
     getTask.mockResolvedValue(task({ approvalExpiresAt: null, approvedAt: null }));
     expect(await getTaskStatusHandler({ taskId: TASK_ID })).not.toHaveProperty('approval');

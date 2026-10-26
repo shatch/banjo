@@ -522,6 +522,42 @@ describe('OpenAIRealtimeProvider: waiting on hold (#151)', () => {
     }
   });
 
+  it('judges who answered out of band, text-only and with no tools (#187)', async () => {
+    const { provider, ws, events, receive } = await connected();
+    const verdict = provider.judgeFirstLine('Please leave a message after the tone.', ['You have reached Dana.']);
+    const [request] = sent(ws);
+    expect(request.response).toMatchObject({ conversation: 'none', output_modalities: ['text'], tools: [], tool_choice: 'none' });
+    expect(request.response.instructions).toContain('HUMAN, VOICEMAIL, IVR or UNCERTAIN');
+    const input = request.response.input[0].content[0].text as string;
+    expect(input).toContain('"Please leave a message after the tone."');
+    expect(input).toContain('"You have reached Dana."');
+    receive({ type: 'response.done', response: { id: 'r', metadata: request.response.metadata, output: [{ content: [{ text: 'VOICEMAIL' }] }] } });
+    await expect(verdict).resolves.toBe('voicemail');
+    expect(events).toEqual([]);
+  });
+
+  it('a person outranks the rest; anything unclear, or no answer in time, is uncertain (#187)', async () => {
+    const { provider, ws, receive } = await connected();
+    const answer = (text: string) => {
+      const request = sent(ws).at(-1)!;
+      receive({ type: 'response.done', response: { id: 'r', metadata: request.response.metadata, output: [{ content: [{ text }] }] } });
+    };
+    const cases: [string, string][] = [['IVR', 'ivr'], ['HUMAN or VOICEMAIL', 'human'], ['UNCERTAIN', 'uncertain'], ['No idea.', 'uncertain']];
+    for (const [text, expected] of cases) {
+      const verdict = provider.judgeFirstLine('Thank you for calling.', []);
+      answer(text);
+      await expect(verdict).resolves.toBe(expected);
+    }
+    vi.useFakeTimers();
+    try {
+      const silent = provider.judgeFirstLine('Hello?', []);
+      await vi.advanceTimersByTimeAsync(8_000);
+      await expect(silent).resolves.toBe('uncertain');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('text-only mode on hold: a typed line is heard but never answered or kept', async () => {
     const { provider, ws, events } = await connected({ textOnly: true });
     provider.setHold(true);

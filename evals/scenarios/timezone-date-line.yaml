@@ -16,4 +16,5 @@ script:
   - Bye!
 expect:
   status: [confirmed]
+  answeredBy: [human, uncertain]
   bookedLocal: { dayOffset: 2, time: "09:30" }

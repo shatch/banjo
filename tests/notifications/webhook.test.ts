@@ -191,7 +191,7 @@ describe('webhookPlainHttpWarning', () => {
     const warning = webhook.webhookPlainHttpWarning('http://hermes:8644/webhooks/banjo');
     expect(warning).toContain('hermes');
     expect(warning).toMatch(/not encrypted/);
-    expect(warning).toContain('#115');
+    expect(warning).toContain('docs/AGENT_SETUP.md');
   });
 
   it.each([
