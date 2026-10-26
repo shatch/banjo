@@ -15,13 +15,14 @@ export const RETRY_DELAY_MS = 5_000;
  * undefined. Config allows http to a Docker service name (`http://hermes:8644`)
  * so an agent in the same compose file needs no TLS, but the event, outcome
  * and all, then crosses that network unencrypted. Signed, so it can't be
- * forged; readable by anything else on the network. Encrypting it is #115.
+ * forged; readable by anything else on the network. docs/AGENT_SETUP.md shows
+ * how to put TLS on it (#115).
  */
 export function webhookPlainHttpWarning(url: string | undefined): string | undefined {
   if (!url) return undefined;
   const { protocol, hostname } = new URL(url);
   if (protocol !== 'http:' || LOOPBACK_HOSTS.has(hostname)) return undefined;
-  return `TASK_WEBHOOK_URL sends call outcomes to "${hostname}" over plain http: signed, but not encrypted. Keep it on a Docker network that only Banjo and the agent share (#115).`;
+  return `TASK_WEBHOOK_URL sends call outcomes to "${hostname}" over plain http: signed, but not encrypted. Keep it on a Docker network that only Banjo and the agent share, or put TLS in front of it ("Encrypting both hops" in docs/AGENT_SETUP.md).`;
 }
 
 /**
