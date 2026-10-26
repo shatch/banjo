@@ -90,7 +90,7 @@ describe('triggerOrchestration: a cancel racing the start of a run', () => {
     triggerOrchestration('task-2');
     await vi.waitFor(() => expect(logger.info).toHaveBeenCalled());
 
-    expect(transitionTask).toHaveBeenCalledWith('task-2', 'checking_availability', undefined, { from: ['pending'] });
+    expect(transitionTask).toHaveBeenCalledWith('task-2', 'checking_availability', undefined, { from: ['pending'], notAwaitingApproval: true });
     expect(createCallAttempt).not.toHaveBeenCalled();
     expect(CallSession).not.toHaveBeenCalled();
   });
@@ -255,6 +255,7 @@ describe('resuming a checking_availability task (#64)', () => {
     expect(transitionTask).toHaveBeenNthCalledWith(1, 'task-r', 'checking_availability', undefined, {
       from: ['checking_availability'],
       ifUpdatedAt: readAt,
+      notAwaitingApproval: true,
     });
     expect(transitionTask).toHaveBeenNthCalledWith(2, 'task-r', 'calling', expect.anything(), {
       from: ['checking_availability'],
@@ -323,7 +324,7 @@ describe('a call waiting for the owner to approve it', () => {
 
     triggerOrchestration('approved');
     await vi.waitFor(() =>
-      expect(transitionTask).toHaveBeenCalledWith('approved', 'checking_availability', undefined, { from: ['pending'] }),
+      expect(transitionTask).toHaveBeenCalledWith('approved', 'checking_availability', undefined, { from: ['pending'], notAwaitingApproval: true }),
     );
   });
 });
@@ -339,7 +340,7 @@ describe('call screening when a scheduled call comes due (#150)', () => {
       getContact.mockResolvedValue({ id: 'contact-1', doNotCallAt: null });
 
       triggerOrchestration('task-9');
-      await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith({ taskId: 'task-9' }, 'call screening held a scheduled call that came due'));
+      await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith({ taskId: 'task-9' }, 'call screening held a call before it was dialed'));
 
       expect(screen).toHaveBeenCalledTimes(1);
       expect(transitionTask).not.toHaveBeenCalled();

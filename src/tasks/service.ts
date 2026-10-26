@@ -87,9 +87,10 @@ function allowedFromStatuses(): Task['status'][] {
 /**
  * transitionTask's compare-and-set: current status in `from`, and (optionally) the row unchanged since `ifUpdatedAt`.
  * `unapproved` also requires that the owner hasn't approved the task, so expiring an agent's request can't land
- * after an approval.
+ * after an approval. `notAwaitingApproval` requires that it isn't waiting for one: the orchestrator's claim, so a
+ * task call screening held after this process read it (another process, #150) can't be dialed.
  */
-export type TransitionGuard = { from: Task['status'][]; ifUpdatedAt?: Date; unapproved?: true };
+export type TransitionGuard = { from: Task['status'][]; ifUpdatedAt?: Date; unapproved?: true; notAwaitingApproval?: true };
 
 type TransitionPatch = Partial<{
   candidateWindows: TimeWindow[];
@@ -147,6 +148,7 @@ export async function transitionTask(
           ? sql`date_trunc('milliseconds', ${tasks.updatedAt}) = ${options.ifUpdatedAt.toISOString()}::timestamptz`
           : undefined,
         options?.unapproved ? isNull(tasks.approvedAt) : undefined,
+        options?.notAwaitingApproval ? or(isNull(tasks.approvalExpiresAt), isNotNull(tasks.approvedAt)) : undefined,
       ),
     )
     .returning();

@@ -29,6 +29,7 @@ const task = {
   questions: null,
   constraints: {},
   scheduledFor: new Date('2026-10-26T15:00:00Z'),
+  createdAt: new Date('2026-10-25T10:00:00Z'),
   approvedAt: null,
   requestedByAgent: false,
 } as unknown as Task;
@@ -39,6 +40,16 @@ describe('needsScreeningWhenDue', () => {
   it('screens a scheduled call the owner has not approved', () => {
     expect(needsScreeningWhenDue(task, contact)).toBe(true);
     expect(needsScreeningWhenDue({ ...task, scheduledFor: null }, contact)).toBe(false);
+  });
+
+  it("screens any call, scheduled or not, when they asked not to be called after it was asked for (#150 review)", () => {
+    const now = { ...task, scheduledFor: null };
+    expect(needsScreeningWhenDue(now, { ...contact, doNotCallAt: new Date('2026-10-25T11:00:00Z') })).toBe(true);
+    expect(needsScreeningWhenDue(now, { ...contact, doNotCallAt: new Date('2026-10-25T09:00:00Z') })).toBe(false);
+    // An agent's call approved before they asked: the approval predates it.
+    const approved = { ...now, approvedAt: new Date('2026-10-25T10:30:00Z') };
+    expect(needsScreeningWhenDue(approved, { ...contact, doNotCallAt: new Date('2026-10-25T11:00:00Z') })).toBe(true);
+    expect(needsScreeningWhenDue(approved, { ...contact, doNotCallAt: new Date('2026-10-25T10:15:00Z') })).toBe(false);
   });
 
   it('skips one the owner approved, unless they asked not to be called after that', () => {

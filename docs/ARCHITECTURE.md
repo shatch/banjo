@@ -467,8 +467,11 @@ Design: `docs/superpowers/specs/2026-10-14-place-call-approval-design.md`.
 
 Approval puts a person in the loop for an agent's calls; screening is the automatic layer for every
 call, whichever key asked. Off by default. With it on, `place_call` screens the request before anything
-is created (`src/screening/`), and the orchestrator screens a scheduled call again when it comes due
-(`screenWhenDue`), unless the owner already approved it and nothing changed since:
+is created (`src/screening/`). The orchestrator screens a scheduled call again when it comes due
+(`screenWhenDue`), unless the owner already approved it, and any call, scheduled or not, whose contact
+asked not to be called after it was asked for or approved (an agent's request can wait half an hour for
+approval). The claim from `pending` refuses a task that's waiting for approval (`notAwaitingApproval`),
+so one another process held after this one read it isn't dialed:
 
 - **Do-not-call memory, no model.** With screening on, every outbound call gets `record_do_not_call`,
   which sets `contacts.do_not_call_at` when the other party asks not to be called again. Any later call

@@ -353,3 +353,15 @@ describe('call screening (#150)', () => {
     expect((await service.getTask(task.id))?.screenFlag).toBeNull();
   });
 });
+
+describe('transitionTask notAwaitingApproval (#150 review)', () => {
+  it("refuses to claim a task that's waiting for approval, as when another process held it meanwhile", async () => {
+    const [contact] = await db.insert(contacts).values({ displayName: 'Robin', phoneNumber: '+15551230401' }).returning();
+    const task = await service.createTask({ contactId: contact.id, channel: 'phone', goalDescription: 'Later', constraints: {} });
+    await service.holdForScreening(task.id, 'They asked not to be called again.', new Date(Date.now() + 60_000));
+
+    expect(await service.transitionTask(task.id, 'checking_availability', undefined, { from: ['pending'], notAwaitingApproval: true })).toBeUndefined();
+    await db.update(tasks).set({ approvedAt: new Date() }).where(eq(tasks.id, task.id));
+    expect(await service.transitionTask(task.id, 'checking_availability', undefined, { from: ['pending'], notAwaitingApproval: true })).toMatchObject({ status: 'checking_availability' });
+  });
+});

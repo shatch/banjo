@@ -8,14 +8,19 @@ import { cancelPendingTask, holdForScreening } from '../tasks/service.js';
 import { screenCall } from './request.js';
 
 /**
- * A scheduled call is screened again when it comes due (#150): by then the
- * contact may have asked not to be called again. Skipped once the owner has
- * approved it, unless that ask came after the approval.
+ * Whether a call is screened again just before it's dialed (#150). Any call
+ * is, scheduled or not, when the contact asked not to be called after it was
+ * asked for or approved: an agent's request can wait half an hour for
+ * approval, and another call can hear that ask meanwhile. A scheduled call
+ * the owner hasn't approved is screened in full, since its request was
+ * checked long before. An approval made after the ask stands.
  */
-export function needsScreeningWhenDue(task: Pick<Task, 'scheduledFor' | 'approvedAt'>, contact: Pick<Contact, 'doNotCallAt'>): boolean {
-  if (!task.scheduledFor) return false;
-  if (!task.approvedAt) return true;
-  return contact.doNotCallAt !== null && contact.doNotCallAt > task.approvedAt;
+export function needsScreeningWhenDue(
+  task: Pick<Task, 'scheduledFor' | 'approvedAt' | 'createdAt'>,
+  contact: Pick<Contact, 'doNotCallAt'>,
+): boolean {
+  if (contact.doNotCallAt && contact.doNotCallAt > (task.approvedAt ?? task.createdAt)) return true;
+  return task.scheduledFor !== null && !task.approvedAt;
 }
 
 /**
