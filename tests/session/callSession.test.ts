@@ -497,8 +497,9 @@ describe('CallSession: audio-aware hang-up wiring', () => {
     // First turn_end satisfies the pre-existing endsCall wait (any preamble
     // the model already spoke); sayVerbatim must not have been called yet.
     voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fakeVoiceAI.sayVerbatim).toHaveBeenCalledTimes(1);
+    // Waited for, not one tick: deliverVerbatim awaits a few steps first, and
+    // under a loaded CI runner a single setTimeout(0) wasn't always enough.
+    await vi.waitFor(() => expect(fakeVoiceAI.sayVerbatim).toHaveBeenCalledTimes(1));
     expect(fakeVoiceAI.sayVerbatim).toHaveBeenCalledWith('Hi, please call back at 555-1234.');
     expect(handler).not.toHaveBeenCalled();
     expect(options.buildToolContext).not.toHaveBeenCalled();
