@@ -373,9 +373,15 @@ When a call finishes, after it has hung up, Banjo POSTs:
   "outcome": { "kind": "confirmed", "start": "2026-10-09T18:00:00.000Z", "durationMinutes": 30, "details": "…" },
   "contact": { "id": "1b2e…", "name": "Luigi's" },
   "text": "Banjo booked with Luigi's: Friday, October 9 at 2:00 PM (30 min). Call details are in outcome, …",
-  "finishedAt": "2026-10-05T20:00:00.000Z"
+  "finishedAt": "2026-10-05T20:00:00.000Z",
+  "followUps": ["What events are on in San Juan the week of the 9th."]
 }
 ```
+
+`followUps` is there only when the other party asked for something Banjo couldn't do or answer
+on the call, such as something to look up (#160). Banjo told them it would pass it on, so act on
+it for the owner: look it up, then tell the owner or follow up by text or a later call. `text`
+then says how many there are, never what they say.
 
 with these headers:
 
@@ -409,8 +415,9 @@ agent already knows the result.
 
 `text` is written entirely by Banjo: the outcome, the time and the contact's name from your own
 contacts. It's safe to put in an agent's prompt. The free-text fields in `outcome` (`details`,
-`reason`, `summary`, a voicemail's `message`) are written by the voice model from what the other
-person said on the call, so anyone who answers the phone can influence them. Show them to a
+`reason`, `summary`, a voicemail's `message`), and each entry of `followUps`, are written by the
+voice model from what the other person said on the call, so anyone who answers the phone can
+influence them. Show them to a
 person, or pass them to an agent as clearly marked data, never as instructions.
 
 ### Plain http only to localhost or a Docker service name

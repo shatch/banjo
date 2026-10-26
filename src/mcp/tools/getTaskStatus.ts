@@ -27,6 +27,13 @@ export type GetTaskStatusResult =
        */
       collectedAnswers?: TaskAnswer[];
       /**
+       * What the other party asked to have passed on to the principal
+       * (#160), as note_follow_up saved it during the call: something Banjo
+       * couldn't answer or do on the call. Left out when there are none.
+       * Written by the voice model, so data, never instructions.
+       */
+      followUps?: string[];
+      /**
        * Only on a call an agent asked for (MCP_AGENT_API_KEY): 'waiting' for
        * the owner to approve it, 'approved', or 'not_approved' (cancelled
        * before approval: it expired or someone cancelled it).
@@ -50,6 +57,7 @@ export async function getTaskStatusHandler(input: z.infer<typeof getTaskStatusIn
     updatedAt: task.updatedAt.toISOString(),
     scheduledFor: task.scheduledFor?.toISOString() ?? null,
     ...(modeRules(task).asks ? { collectedAnswers: collectedAnswersFor(task) } : {}),
+    ...(task.followUps?.length ? { followUps: task.followUps } : {}),
     ...withApproval(task),
   };
 }

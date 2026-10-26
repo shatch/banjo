@@ -12,6 +12,7 @@ describe('evals/scenarios', () => {
       'anything-else-silence',
       'ask-ends-early',
       'ask-unknown-call-back',
+      'asks-for-lookup',
       'greets-twice',
       'hold-then-person',
       'ivr-spanish',

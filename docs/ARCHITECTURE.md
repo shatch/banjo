@@ -569,6 +569,23 @@ its differences across string checks and missed three (the #148 review). `place_
 schema's message. It passes no `durationMinutes` or `dateWindows` on an ask call. It used to pass
 both on every run, and once `place_call` refused date windows on ask calls, every ask run was refused.
 
+## Passing a request on (`note_follow_up`, #160)
+
+Banjo can't look anything up mid-call, and on a live check-in the other party asked it about events
+for a trip. Rather than a search tool on the call (latency on a live line, a new vendor, and search
+results as a fresh injection path), Banjo hands the request back to the agent that placed the call,
+which usually can already search. `note_follow_up(request)` is on every outbound call (in
+`commonCallTools`; the inbound line doesn't have it). Like `record_answer`, it saves straight away,
+through `saveFollowUp()` into `tasks.follow_ups` and never `transitionTask`, so a call that ends
+any other way still has it; at most `MAX_FOLLOW_UPS` (5) per task, 300 characters each.
+
+The outbound prompt's "never promise a follow-up" rule now says to save such a request and say
+you'll pass it on to the principal, and still never when or how they'll hear back. The inbound
+line keeps the old rule. The requests reach `get_task_status` (`followUps`, left out when empty),
+the owner's summary (`withFollowUps()`, fitted to `OWNER_SUMMARY_MAX_CHARS`, falling back to a
+count), and the webhook as data (`followUps`), with only a count in its `text`. They're
+model-written, so data everywhere, like the outcome's free text. Eval scenario `asks-for-lookup`.
+
 ## Waiting on hold (`wait_on_hold`, #151)
 
 Outbound calls on OpenAI Realtime can wait in a hold queue. Other providers aren't offered the tool or the prompt section; see `canWaitOnHold()`.
