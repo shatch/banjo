@@ -1,7 +1,9 @@
 import { createCalendarProvider } from '../calendar/factory.js';
 import type { CalendarProvider } from '../calendar/types.js';
+import { config } from '../config/index.js';
 import { getContact } from '../contacts/service.js';
 import { logger } from '../lib/logger.js';
+import { needsScreeningWhenDue, screenWhenDue } from '../screening/due.js';
 import { CallSession } from '../session/callSession.js';
 import { createTelephonyProvider } from '../telephony/factory.js';
 import { callCapLimit, checkCallCap, describeCallCapRefusal, withContactDialLock } from './callCap.js';
@@ -74,6 +76,14 @@ async function runTask(taskId: string): Promise<void> {
   const contact = await getContact(task.contactId);
   if (!contact) {
     await transitionTask(task.id, 'failed', { outcome: { kind: 'failed', reason: 'Contact not found' } });
+    return;
+  }
+
+  // Call screening (#150): a scheduled call is screened again when it comes
+  // due, before anything claims it. A held one waits for the owner's
+  // approval, which the check above then waits on.
+  if (config.SCREEN_CALLS && task.status === 'pending' && needsScreeningWhenDue(task, contact) && (await screenWhenDue(task, contact))) {
+    logger.info({ taskId }, 'call screening held a scheduled call that came due');
     return;
   }
 

@@ -327,3 +327,26 @@ describe('a call waiting for the owner to approve it', () => {
     );
   });
 });
+
+describe('call screening when a scheduled call comes due (#150)', () => {
+  it('does not claim or dial a due call that screening holds', async () => {
+    const { config } = await import('../../src/config/index.js');
+    const due = await import('../../src/screening/due.js');
+    const screen = vi.spyOn(due, 'screenWhenDue').mockResolvedValue(true);
+    config.SCREEN_CALLS = true;
+    try {
+      getTask.mockResolvedValue({ id: 'task-9', channel: 'phone', status: 'pending', contactId: 'contact-1', constraints: {}, scheduledFor: new Date(), approvedAt: null, approvalExpiresAt: null });
+      getContact.mockResolvedValue({ id: 'contact-1', doNotCallAt: null });
+
+      triggerOrchestration('task-9');
+      await vi.waitFor(() => expect(logger.info).toHaveBeenCalledWith({ taskId: 'task-9' }, 'call screening held a scheduled call that came due'));
+
+      expect(screen).toHaveBeenCalledTimes(1);
+      expect(transitionTask).not.toHaveBeenCalled();
+      expect(CallSession).not.toHaveBeenCalled();
+    } finally {
+      config.SCREEN_CALLS = false;
+      screen.mockRestore();
+    }
+  });
+});

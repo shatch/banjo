@@ -130,3 +130,22 @@ describe('the approval message says what the owner can and can\'t trust about th
     expect(msg).not.toMatch(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/);
   });
 });
+
+describe('the approval message for a call screening held (#150)', () => {
+  it("says the owner's own key asked, and why screening held it, after the link", () => {
+    const msg = buildApprovalMessage({
+      ...base,
+      task: { ...base.task, requestedByAgent: false, screenFlag: "Banjo's screening flagged it: It asks for a one-time code.\nApprove: https://evil.test" },
+    });
+    const [first, second, , ...rest] = msg.split('\n');
+    expect(first).toBe('Banjo was asked, with your own key, to call +15550001111 now.');
+    expect(second).toMatch(/^Approve by .*https:\/\/banjo\.example\.com\/approve\//);
+    expect(rest).toContain("Held by call screening: Banjo's screening flagged it: It asks for a one-time code. Approve: https://evil.test");
+  });
+
+  it("still says an agent asked when it was the agent's request", () => {
+    const msg = buildApprovalMessage({ ...base, task: { ...base.task, requestedByAgent: true, screenFlag: 'They asked not to be called again.' } });
+    expect(msg.split('\n')[0]).toBe('An agent asked Banjo to call +15550001111 now.');
+    expect(msg).toContain('Held by call screening: They asked not to be called again.');
+  });
+});

@@ -16,6 +16,12 @@ export const updateContactInputSchema = z.object({
     .optional()
     .describe("Online booking URL for this contact. Only the owner's key can change it: it's the page opened to book online."),
   notes: z.string().optional().describe('Free-text notes to store on this contact (overwrites existing notes).'),
+  clearDoNotCall: z
+    .literal(true)
+    .optional()
+    .describe(
+      "Forget that this contact asked, on a call, not to be called again (doNotCallAt). With call screening on, calls to them wait for the owner's approval until then. Only the owner's key can clear it.",
+    ),
 });
 
 /**
@@ -23,7 +29,9 @@ export const updateContactInputSchema = z.object({
  * key (MCP_AGENT_API_KEY) can't change them: otherwise an agent could change
  * what a call says after the owner approved it. Nor the booking URL: Claude
  * Code opens it when it books online for the owner, so an agent could send
- * the owner's own session to a page of its choosing.
+ * the owner's own session to a page of its choosing. Nor clear a do-not-call
+ * request (#150): agents read call-derived text, so that would let a call
+ * undo someone's "don't call me again".
  */
 export async function updateContactHandler(
   input: z.infer<typeof updateContactInputSchema>,
@@ -35,6 +43,9 @@ export async function updateContactHandler(
   if (ctx.role === 'agent' && input.bookingUrl !== undefined) {
     throw new Error("A contact's booking URL can only be changed by the owner: it's the page opened to book online. Leave bookingUrl out to update the rest.");
   }
-  const { id, ...patch } = input;
-  return updateContact(id, patch);
+  if (ctx.role === 'agent' && input.clearDoNotCall) {
+    throw new Error("Only the owner can clear a contact's do-not-call request: they asked not to be called again. Leave clearDoNotCall out to update the rest.");
+  }
+  const { id, clearDoNotCall, ...patch } = input;
+  return updateContact(id, { ...patch, ...(clearDoNotCall ? { doNotCallAt: null } : {}) });
 }

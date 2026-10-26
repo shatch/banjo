@@ -17,6 +17,7 @@ import {
   commonCallTools,
   endConversationCallTool,
   recordAnswerTool,
+  recordDoNotCallTool,
   reportAnswersAndEndCallTool,
   waitOnHoldTool,
 } from '../voice/tools/callTools.js';
@@ -132,6 +133,8 @@ function outboundToolsFor(task: Task): VoiceTool<any, CallContext>[] {
   if (config.TRANSFER_ENABLED) base.push(transferToOwnerTool);
   if (canWaitOnHold()) base.push(waitOnHoldTool);
   if (canAskOwner()) base.push(askOwnerTool);
+  // #150: the do-not-call memory call screening reads, only when it's on.
+  if (config.SCREEN_CALLS) base.push(recordDoNotCallTool);
   return [...base, ...(MODE_TOOLS[task.mode] ?? [])];
 }
 

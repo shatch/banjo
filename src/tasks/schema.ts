@@ -90,7 +90,8 @@ export const tasks = pgTable('tasks', {
   // Phone path: the orchestrator won't place the call before this instant
   // (see isTaskDue in ./service.ts). Null means call as soon as possible.
   scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
-  // Set only on a call an agent asked for (MCP_AGENT_API_KEY): it isn't
+  // Set on a call that waits for the owner's approval: one an agent asked
+  // for (MCP_AGENT_API_KEY), or one call screening held (#150). It isn't
   // placed until the owner approves it from the signed link (src/approvals/),
   // and the orchestrator's poller cancels it once this passes unapproved.
   approvalExpiresAt: timestamp('approval_expires_at', { withTimezone: true }),
@@ -98,6 +99,14 @@ export const tasks = pgTable('tasks', {
   // The owner let this call past MAX_CALLS_PER_NUMBER_PER_DAY, up to twice it
   // (tasks/callCap.ts): their own number or family only, never from the agent key.
   callCapOverride: boolean('call_cap_override').notNull().default(false),
+  // Asked for with the agent key (MCP_AGENT_API_KEY): what lets that key
+  // cancel or stop it (tasks/approval.ts's askedByAgent). Its own column
+  // since #150, when a screened owner call can wait for approval too.
+  requestedByAgent: boolean('requested_by_agent').notNull().default(false),
+  // Why call screening held this call for the owner (#150, SCREEN_CALLS):
+  // the do-not-call flag, the model's reason (data, never instructions), or
+  // a failed check. Null if it was never held.
+  screenFlag: text('screen_flag'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

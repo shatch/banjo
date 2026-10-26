@@ -31,6 +31,10 @@ export const contacts = pgTable(
     email: text('email'), // nullable; not a communication channel yet, just data
     googleResourceName: text('google_resource_name'), // e.g. "people/c1234567890"
     relationshipTier: relationshipTierEnum('relationship_tier'),
+    // When they asked, on a call, not to be called again (#150,
+    // record_do_not_call). With SCREEN_CALLS on, a later call to them waits
+    // for the owner's approval. Cleared only with the owner's key.
+    doNotCallAt: timestamp('do_not_call_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

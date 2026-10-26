@@ -39,13 +39,19 @@ describe('mcp: cancel_task', () => {
     const agent = { role: 'agent' as const };
 
     it('cancels a call the agent asked for', async () => {
-      getTask.mockResolvedValue({ id: TASK_ID, status: 'pending', approvalExpiresAt: new Date() });
+      getTask.mockResolvedValue({ id: TASK_ID, status: 'pending', approvalExpiresAt: new Date(), requestedByAgent: true });
       cancelPendingTask.mockResolvedValue({ id: TASK_ID, status: 'cancelled' });
       await expect(cancelTaskHandler({ taskId: TASK_ID }, agent)).resolves.toMatchObject({ cancelled: true });
     });
 
     it("refuses the owner's own calls, without touching them", async () => {
-      getTask.mockResolvedValue({ id: TASK_ID, status: 'pending', approvalExpiresAt: null });
+      getTask.mockResolvedValue({ id: TASK_ID, status: 'pending', approvalExpiresAt: null, requestedByAgent: false });
+      await expect(cancelTaskHandler({ taskId: TASK_ID }, agent)).rejects.toThrow(/only.*calls it asked for/);
+      expect(cancelPendingTask).not.toHaveBeenCalled();
+    });
+
+    it("refuses an owner's call that screening held for approval: waiting isn't the agent's (#150)", async () => {
+      getTask.mockResolvedValue({ id: TASK_ID, status: 'pending', approvalExpiresAt: new Date(), requestedByAgent: false, screenFlag: 'x' });
       await expect(cancelTaskHandler({ taskId: TASK_ID }, agent)).rejects.toThrow(/only.*calls it asked for/);
       expect(cancelPendingTask).not.toHaveBeenCalled();
     });

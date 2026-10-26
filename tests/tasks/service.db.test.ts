@@ -312,3 +312,44 @@ describe('saveCollectedAnswer (#148 review)', () => {
     expect(await service.saveCollectedAnswer('00000000-0000-0000-0000-000000000000', { question: 1, answered: false })).toBe(false);
   });
 });
+
+describe('call screening (#150)', () => {
+  async function contactWith(phoneNumber: string) {
+    const [contact] = await db.insert(contacts).values({ displayName: 'Robin', phoneNumber }).returning();
+    return contact;
+  }
+
+  it('recentTasksForContact lists phone tasks to that contact since a time, newest first', async () => {
+    const contact = await contactWith('+15551230301');
+    const other = await contactWith('+15551230302');
+    const old = await service.createTask({ contactId: contact.id, channel: 'phone', goalDescription: 'Old', constraints: {} });
+    await db.update(tasks).set({ updatedAt: new Date(Date.now() - 40 * 86_400_000) }).where(eq(tasks.id, old.id));
+    await service.createTask({ contactId: contact.id, channel: 'phone', goalDescription: 'First', constraints: {} });
+    await service.createTask({ contactId: contact.id, channel: 'phone', goalDescription: 'Second', constraints: {} });
+    await service.createTask({ contactId: other.id, channel: 'phone', goalDescription: 'Elsewhere', constraints: {} });
+
+    const recent = await service.recentTasksForContact(contact.id, new Date(Date.now() - 30 * 86_400_000));
+    expect(recent.map((t: { goalDescription: string }) => t.goalDescription)).toEqual(['Second', 'First']);
+  });
+
+  it('holdForScreening makes a pending task wait for approval again, clearing an earlier approval', async () => {
+    const contact = await contactWith('+15551230303');
+    const task = await service.createTask({ contactId: contact.id, channel: 'phone', goalDescription: 'Later', constraints: {} });
+    await db.update(tasks).set({ approvedAt: new Date() }).where(eq(tasks.id, task.id));
+    const expiresAt = new Date(Date.now() + 30 * 60_000);
+
+    const held = await service.holdForScreening(task.id, 'They asked not to be called again.', expiresAt);
+
+    expect(held).toMatchObject({ status: 'pending', approvedAt: null, screenFlag: 'They asked not to be called again.', requestedByAgent: false });
+    expect(held?.approvalExpiresAt?.getTime()).toBe(expiresAt.getTime());
+  });
+
+  it('holdForScreening leaves a task that is no longer pending alone', async () => {
+    const contact = await contactWith('+15551230304');
+    const task = await service.createTask({ contactId: contact.id, channel: 'phone', goalDescription: 'Gone', constraints: {} });
+    await service.transitionTask(task.id, 'cancelled');
+
+    expect(await service.holdForScreening(task.id, 'x', new Date())).toBeUndefined();
+    expect((await service.getTask(task.id))?.screenFlag).toBeNull();
+  });
+});

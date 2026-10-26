@@ -388,6 +388,18 @@ const envSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((v) => v === 'true'),
+    // Call screening (#150, src/screening/): each place_call request is
+    // checked before a task is created, and a scheduled call again when it
+    // comes due. A request to someone who asked not to be called again, one
+    // the model flags, or one the check couldn't run on waits for the
+    // owner's approval through the same signed link as an agent's request.
+    // Off by default.
+    SCREEN_CALLS: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+    // The OpenAI Responses model that screens requests.
+    SCREEN_CALLS_MODEL: z.string().min(1).default('gpt-5.6-terra'),
   })
   .refine((v) => v.VOICE_AI_PROVIDER !== 'openai' || !!v.OPENAI_API_KEY, {
     message: 'OPENAI_API_KEY is required when VOICE_AI_PROVIDER=openai',
@@ -461,6 +473,11 @@ const envSchema = z
   .refine((v) => !v.ASK_OWNER_ENABLED || (v.NOTIFICATION_CHANNEL !== 'none' && !!v.PUBLIC_HOSTNAME), {
     message: "ASK_OWNER_ENABLED needs a NOTIFICATION_CHANNEL other than none and PUBLIC_HOSTNAME: questions reach the owner as a link through it",
     path: ['ASK_OWNER_ENABLED'],
+  })
+  .refine((v) => !v.SCREEN_CALLS || (!!v.OPENAI_API_KEY && v.NOTIFICATION_CHANNEL !== 'none' && !!v.PUBLIC_HOSTNAME), {
+    message:
+      'SCREEN_CALLS needs OPENAI_API_KEY, a NOTIFICATION_CHANNEL other than none, and PUBLIC_HOSTNAME: requests are checked by OpenAI, and a held one reaches the owner as a link',
+    path: ['SCREEN_CALLS'],
   })
   .refine((v) => !v.TRANSCRIBE_TRANSFERS || (v.PERSIST_TRANSCRIPTS && !!v.OPENAI_API_KEY), {
     message: 'TRANSCRIBE_TRANSFERS needs PERSIST_TRANSCRIPTS=true and OPENAI_API_KEY: the transcript is saved with the call, transcribed by OpenAI',

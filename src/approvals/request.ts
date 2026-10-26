@@ -79,6 +79,10 @@ export function buildApprovalMessage({
   contact: ContactShown;
   task: Pick<Task, 'id' | 'goalDescription' | 'mode' | 'questions' | 'scheduledFor' | 'approvalExpiresAt'> & {
     constraints?: Task['constraints'];
+    /** Who asked: an agent unless this is false, i.e. the owner's own key with a call screening held (#150). */
+    requestedByAgent?: boolean;
+    /** Why call screening held it (#150). */
+    screenFlag?: string | null;
   };
 }): string {
   const expiresAt = task.approvalExpiresAt!;
@@ -86,9 +90,13 @@ export function buildApprovalMessage({
   const callNotes = oneLine(task.constraints?.notes ?? '');
   const contactNotes = oneLine(contact.notes ?? '');
   return [
-    `An agent asked Banjo to call ${contact.phoneNumber} ${when}.`,
+    task.requestedByAgent === false
+      ? `Banjo was asked, with your own key, to call ${contact.phoneNumber} ${when}.`
+      : `An agent asked Banjo to call ${contact.phoneNumber} ${when}.`,
     `Approve by ${formatLocal(expiresAt)}, or it won't be placed: ${approvalUrl(task.id, expiresAt)}`,
     '',
+    // Partly the screening model's words, so after the link and on one line.
+    ...(task.screenFlag ? [`Held by call screening: ${oneLine(task.screenFlag)}`] : []),
     // The name is agent-writable too (add_contact), so it comes after the link.
     ...contactNames(contact).map(([label, name]) => `${MESSAGE_NAME_LABELS[label]}: ${oneLine(name)}`),
     ...(tierNote(contact) ? [tierNote(contact)!] : []),

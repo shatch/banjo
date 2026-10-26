@@ -64,6 +64,13 @@
       "when": 1792415389035,
       "tag": "0008_swift_champions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792978824695,
+      "tag": "0009_cynical_jamie_braddock",
+      "breakpoints": true
     }
   ]
 }

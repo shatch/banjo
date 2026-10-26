@@ -82,7 +82,9 @@ approvalRoutes.get('/approve/:taskId', async (c) => {
     ...(contact && tierNote(contact) ? ([['Your profile', escapeHtml(tierNote(contact)!)]] as Array<[string, string]>) : []),
     ['When', whenHtml(task, now)],
     ['Kind of call', escapeHtml(task.mode)],
-    ['What the agent asked for', escapeHtml(task.goalDescription)],
+    // Partly the screening model's words (#150): escaped, under Banjo's label.
+    ...(task.screenFlag ? ([['Held by call screening', escapeHtml(task.screenFlag)]] as Array<[string, string]>) : []),
+    [task.requestedByAgent ? 'What the agent asked for' : 'What was asked for', escapeHtml(task.goalDescription)],
     ...(task.questions?.length
       ? ([['Questions', escapeHtml(task.questions.map((q, i) => `${i + 1}. ${q}`).join('\n'))]] as Array<[string, string]>)
       : []),

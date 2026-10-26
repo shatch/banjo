@@ -22,16 +22,22 @@ export const listRecentTasksInputSchema = z.object({
  * raw map is keyed by question number, without the questions. get_task_status
  * returns them paired with their questions (#148 review), so they have one
  * shape and one place to be read from.
+ *
+ * And without screenFlag (#150): why call screening held a call can be the
+ * screening model's words about the agent's own request, which go to the
+ * owner only. heldByScreening says that it did.
  */
-export type TaskSummary = Omit<Task, 'candidateWindows' | 'collectedAnswers'> & {
-  /** Only on a call an agent asked for: see get_task_status. */
+export type TaskSummary = Omit<Task, 'candidateWindows' | 'collectedAnswers' | 'screenFlag'> & {
+  /** Only on a call that needed approval: see get_task_status. */
   approval?: 'waiting' | 'approved' | 'not_approved';
+  /** Call screening held this call for the owner's approval (#150). */
+  heldByScreening?: true;
 };
 
 export async function listRecentTasksHandler(input: z.infer<typeof listRecentTasksInputSchema>): Promise<TaskSummary[]> {
   const tasks = await listRecentTasks(input.limit ?? 20);
-  return tasks.map(({ candidateWindows: _candidateWindows, collectedAnswers: _collectedAnswers, ...summary }) => {
+  return tasks.map(({ candidateWindows: _candidateWindows, collectedAnswers: _collectedAnswers, screenFlag, ...summary }) => {
     const approval = approvalState(summary);
-    return approval ? { ...summary, approval } : summary;
+    return { ...summary, ...(approval ? { approval } : {}), ...(screenFlag ? { heldByScreening: true as const } : {}) };
   });
 }

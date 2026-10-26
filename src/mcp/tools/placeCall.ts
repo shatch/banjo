@@ -9,6 +9,7 @@ import { sendOwnerMessage } from '../../notifications/owner.js';
 import { callCapLimit, canOverrideCallCap, checkCallCap, describeCallCapRefusal, OVERRIDE_CAP_MULTIPLIER } from '../../tasks/callCap.js';
 import { cancelPendingTask, countOpenApprovalRequests, createTask, withApprovalRequestLock } from '../../tasks/service.js';
 import type { McpRole } from '../role.js';
+import { heldForAgent, screenCall } from '../../screening/request.js';
 import { triggerOrchestration } from '../../tasks/orchestrator.js';
 import type { TaskConstraints, TimeWindow } from '../../tasks/schema.js';
 import { modeRules } from '../../tasks/modes.js';
@@ -218,6 +219,13 @@ export async function placeCallHandler(
     if (!cap.allowed) throw new Error(describeCallCapRefusal(cap));
   }
 
+  // Call screening (#150): before anything is created. A held request waits
+  // for the owner like an agent's, whoever asked, and is never refused.
+  const screen = config.SCREEN_CALLS
+    ? await screenCall(contact, { mode: input.mode ?? 'booking', goal: input.taskDescription, questions: input.questions, notes: input.constraints?.notes })
+    : ({ held: false } as const);
+  const needsApproval = agent || screen.held;
+
   const create = () =>
     createTask({
       contactId: input.contactId,
@@ -227,7 +235,9 @@ export async function placeCallHandler(
       mode: input.mode,
       questions: input.questions,
       scheduledFor,
-      ...(agent ? { approvalExpiresAt: new Date(Date.now() + APPROVAL_WINDOW_MS) } : {}),
+      ...(needsApproval ? { approvalExpiresAt: new Date(Date.now() + APPROVAL_WINDOW_MS) } : {}),
+      ...(agent ? { requestedByAgent: true } : {}),
+      ...(screen.held ? { screenFlag: screen.reason } : {}),
       ...(input.overrideCallCap ? { callCapOverride: true } : {}),
     });
   // An agent's request is checked against the waiting limit and created under
@@ -244,17 +254,18 @@ export async function placeCallHandler(
         return create();
       });
 
-  if (agent) {
+  if (needsApproval) {
     const addressBookName = await addressBookNameFor(contact);
     const delivered = await sendOwnerMessage(buildApprovalMessage({ contact: { ...contact, addressBookName }, task }));
     if (!delivered) {
       await cancelPendingTask(task.id);
       throw new Error("Couldn't reach the owner for approval, so no call will be placed.");
     }
+    const held = screen.held ? (agent ? `${heldForAgent(screen)} ` : `Call screening held it for the owner's approval: ${screen.reason} `) : '';
     return {
       taskId: task.id,
       ackMessage:
-        `Asked the owner to approve a call about "${input.taskDescription}". It will be placed once they approve, or ` +
+        `${held}Asked the owner to approve a call about "${input.taskDescription}". It will be placed once they approve, or ` +
         `cancelled if they haven't by ${formatLocal(task.approvalExpiresAt!)} (${config.CALENDAR_TIMEZONE}). Check get_task_status.`,
     };
   }

@@ -456,11 +456,39 @@ is the one action here that can't be taken back. So the gate is in Banjo, keyed 
   cancelling and asking again can't flood the owner with messages.
 - The agent key can't use up the owner's calls or stop them. The owner's `place_call` cap check leaves out
   agent requests still waiting for approval (each is counted again before it dials), and the agent key's
-  `cancel_task` and `stop_call` reach only calls it asked for (`askedByAgent`).
+  `cancel_task` and `stop_call` reach only calls it asked for (`askedByAgent`, the `requested_by_agent`
+  column since #150, when a screened owner call can wait for approval too).
 - Startup fails if the agent key is set without `PUBLIC_HOSTNAME`, with `NOTIFICATION_CHANNEL=none`, or
   equal to `MCP_API_KEY`.
 
 Design: `docs/superpowers/specs/2026-10-14-place-call-approval-design.md`.
+
+### Call screening (`SCREEN_CALLS`, #150)
+
+Approval puts a person in the loop for an agent's calls; screening is the automatic layer for every
+call, whichever key asked. Off by default. With it on, `place_call` screens the request before anything
+is created (`src/screening/`), and the orchestrator screens a scheduled call again when it comes due
+(`screenWhenDue`), unless the owner already approved it and nothing changed since:
+
+- **Do-not-call memory, no model.** With screening on, every outbound call gets `record_do_not_call`,
+  which sets `contacts.do_not_call_at` when the other party asks not to be called again. Any later call
+  to that contact is held. Only the owner's key can clear it (`update_contact`'s `clearDoNotCall`).
+- **A model's check of the request.** `SCREEN_CALLS_MODEL` (an OpenAI Responses model, default
+  `gpt-5.6-terra`) reads the request: mode, goal, questions, notes, the contact's name and tier, and the
+  last 30 days of calls to them by status and goal, everything agent-written quoted as data. It answers
+  `OK` or `FLAG: <reason>`. It flags fraud or deception, harassment or pressure, calling someone who
+  refused, getting a card number, bank details, a password, a PIN or a one-time code, pretending to be the
+  owner or another real person, and instructions too unclear to act on.
+- **Held, never refused.** A do-not-call contact, a flag, or a check that couldn't run (an error, a
+  timeout, an answer that isn't `OK` or `FLAG`) holds the call: `approval_expires_at` and `screen_flag`
+  are set and the owner gets the approval message with "Held by call screening: …" after the link, on one
+  line. A false alarm costs the owner a tap. Fails closed: nothing is dialed without a clear `OK`.
+- The model's reason goes to the owner only. The agent's `ackMessage` names the kind of hold in Banjo's
+  words (`heldForAgent`), `list_recent_tasks` gives `heldByScreening: true`, not `screen_flag`, and logs
+  record the kind, not the reason.
+
+What it doesn't do: listen to calls as they happen, read transcripts (a "don't call me again" counts only
+if Banjo recorded it with the tool), or stop the owner. An approved call goes ahead.
 
 ---
 
