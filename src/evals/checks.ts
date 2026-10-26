@@ -97,6 +97,10 @@ export function runChecks(record: RunRecord, scenario: Scenario): CheckResult[] 
   const e = scenario.expect;
 
   results.push(e.status.includes(record.status) ? pass('status') : fail('status', `${record.status}, expected ${e.status.join(' or ')}`));
+  if (e.answeredBy) {
+    const last = record.answeredBy.at(-1);
+    results.push(last && e.answeredBy.includes(last) ? pass('answered_by') : fail('answered_by', `${last ?? 'none'}, expected ${e.answeredBy.join(' or ')}`));
+  }
   for (const t of e.toolsCalled ?? []) {
     const name = toolName('tool_called', t);
     results.push(record.toolCalls.some((c) => matches(c, t)) ? pass(name) : fail(name, `called: ${record.toolCalls.map((c) => c.name).join(', ') || 'none'}`));

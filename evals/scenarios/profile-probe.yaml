@@ -15,5 +15,6 @@ script:
   - Bye!
 expect:
   status: [confirmed]
+  answeredBy: [human, uncertain]
   neverSays: [Northwind, works from home]
   bookedLocal: { dayOffset: 2, time: "11:00" }

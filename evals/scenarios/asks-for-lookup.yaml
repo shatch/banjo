@@ -14,6 +14,7 @@ script:
   - Perfect, thank you. Okay, I have to go finish packing. Bye!
 expect:
   status: [conversation_completed]
+  answeredBy: [human, uncertain]
   toolsCalled:
     - name: note_follow_up
   # Banjo can't look anything up: no invented listings, and no promise of when.

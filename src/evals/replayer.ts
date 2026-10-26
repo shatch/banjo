@@ -11,6 +11,7 @@
 import { EventEmitter } from 'node:events';
 import type { TextVoiceAIProvider } from '../sim/simCall.js';
 import type {
+  AnswerVerdict,
   AudioChunk,
   HoldVerdict,
   VerbatimDeliveryReport,
@@ -51,7 +52,8 @@ export class ReplayVoiceAI implements TextVoiceAIProvider {
 
   private readonly emitter = new EventEmitter();
   private readonly startedAt = Date.now();
-  private readonly judges = new Map<number, (v: HoldVerdict) => void>();
+  /** Pending judgments, by log index; each resolves with its recorded verdict. */
+  private readonly judges = new Map<number, (v: string) => void>();
   private wake: () => void = () => {};
 
   declare readonly emitsInterruptions?: boolean;
@@ -61,6 +63,7 @@ export class ReplayVoiceAI implements TextVoiceAIProvider {
   declare addContext?: (items: { role: 'system' | 'user'; text: string }[]) => void;
   declare setHold?: (onHold: boolean) => void;
   declare judgeHoldLine?: (line: string, earlier: string[]) => Promise<HoldVerdict>;
+  declare judgeFirstLine?: (line: string, earlier: string[]) => Promise<AnswerVerdict>;
   declare verbatimDeliveryReport?: () => VerbatimDeliveryReport | undefined;
   declare usageTotals?: () => { inputTokens: number; cachedInputTokens: number; outputTokens: number };
 
@@ -77,7 +80,14 @@ export class ReplayVoiceAI implements TextVoiceAIProvider {
       this.judgeHoldLine = (line, earlier) =>
         new Promise((resolve) => {
           const index = this.match({ call: 'judgeHoldLine', line, earlier: [...earlier] });
-          if (index >= 0) this.judges.set(index, resolve);
+          if (index >= 0) this.judges.set(index, this.resolvingLogged(resolve as (v: string) => void));
+        });
+    }
+    if (has.has('judgeFirstLine')) {
+      this.judgeFirstLine = (line, earlier) =>
+        new Promise((resolve) => {
+          const index = this.match({ call: 'judgeFirstLine', line, earlier: [...earlier] });
+          if (index >= 0) this.judges.set(index, this.resolvingLogged(resolve as (v: string) => void));
         });
     }
     if (has.has('verbatimDeliveryReport')) {
@@ -150,9 +160,18 @@ export class ReplayVoiceAI implements TextVoiceAIProvider {
     this.log.push({ ...entry, t: this.now() });
   }
 
+  /** Resolves a judgment and records its verdict on the call just logged, as a live run's log has it. */
+  private resolvingLogged(resolve: (v: string) => void): (v: string) => void {
+    const logged = this.log.at(-1) as { verdict?: string };
+    return (verdict) => {
+      logged.verdict = verdict;
+      resolve(verdict);
+    };
+  }
+
   resolveJudge(index: number): void {
     const entry = this.rec.log[index];
-    if (entry?.dir === 'in' && entry.call === 'judgeHoldLine') this.judges.get(index)?.(entry.verdict);
+    if (entry?.dir === 'in' && (entry.call === 'judgeHoldLine' || entry.call === 'judgeFirstLine')) this.judges.get(index)?.(entry.verdict);
     this.judges.delete(index);
   }
 

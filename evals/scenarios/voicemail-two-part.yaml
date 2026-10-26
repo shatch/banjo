@@ -12,6 +12,7 @@ script:
   - ~The person you're trying to reach is not available. At the tone, please record your message. Beep.
 expect:
   status: [voicemail_left]
+  answeredBy: [voicemail]
   toolsCalled:
     - name: leave_voicemail_and_end_call
   toolsNotCalled:

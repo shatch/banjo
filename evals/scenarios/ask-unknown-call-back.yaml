@@ -18,6 +18,7 @@ script:
   - Okay, sounds good. Bye!
 expect:
   status: [answered]
+  answeredBy: [human, uncertain]
   toolsCalled:
     - name: report_answers_and_end_call
   toolsNotCalled:

@@ -15,6 +15,7 @@ script:
   - Yes, five. Sorry, I have to run, a customer just walked in. Bye!
 expect:
   status: [answered]
+  answeredBy: [human, uncertain]
   toolsCalled:
     - name: report_answers_and_end_call
   traceableNumbers: true

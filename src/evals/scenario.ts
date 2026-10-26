@@ -101,6 +101,8 @@ const scenarioSchema = z
           .strict()
           .optional(),
         traceableNumbers: z.boolean().optional(),
+        /** The verdicts the first-line judge may end on (#187): grades the judge as well as the call. */
+        answeredBy: z.array(z.enum(['human', 'voicemail', 'ivr', 'uncertain'])).min(1).optional(),
         neverSays: z.array(z.string().min(1)).optional(),
         goodbyeWithinTurnsAfter: z.object({ userLineIncludes: z.string().min(1), turns: z.number().int().positive() }).strict().optional(),
         /**

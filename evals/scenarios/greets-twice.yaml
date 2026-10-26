@@ -15,6 +15,7 @@ script:
   - You too, bye!
 expect:
   status: [confirmed]
+  answeredBy: [human, uncertain]
   toolsCalled:
     - name: confirm_appointment
   bookedLocal: { dayOffset: 2, time: "11:00" }

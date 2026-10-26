@@ -4,7 +4,7 @@ import { RecordingVoiceAI } from '../../src/evals/recorder.js';
 import type { TextVoiceAIProvider } from '../../src/sim/simCall.js';
 import type { VoiceAIEvent, VoiceAIEventListener } from '../../src/voice/types.js';
 
-const OPTIONAL = ['addContext', 'setHold', 'judgeHoldLine', 'verbatimDeliveryReport', 'usageTotals'] as const;
+const OPTIONAL = ['addContext', 'setHold', 'judgeHoldLine', 'judgeFirstLine', 'verbatimDeliveryReport', 'usageTotals'] as const;
 
 /** A text voice session; `full` also has every optional method, as OpenAI Realtime does. */
 function inner(full: boolean) {
@@ -32,6 +32,7 @@ function inner(full: boolean) {
       addContext: () => {},
       setHold: () => {},
       judgeHoldLine: async () => 'menu',
+      judgeFirstLine: async () => 'voicemail',
       verbatimDeliveryReport: () => ({ intended: 'Bye!', spoken: 'Bye!', matched: true }),
       usageTotals: () => ({ inputTokens: 1, cachedInputTokens: 0, outputTokens: 2 }),
     });
@@ -78,6 +79,12 @@ describe('RecordingVoiceAI', () => {
     const rec = new RecordingVoiceAI(inner(true));
     await expect(rec.judgeHoldLine!('Press 1 for sales.', [])).resolves.toBe('menu');
     expect(rec.log.at(-1)).toMatchObject({ call: 'judgeHoldLine', line: 'Press 1 for sales.', earlier: [], verdict: 'menu' });
+  });
+
+  it('judgeFirstLine logs the verdict the inner provider returned (#187)', async () => {
+    const rec = new RecordingVoiceAI(inner(true));
+    await expect(rec.judgeFirstLine!('Leave a message.', ['Hi.'])).resolves.toBe('voicemail');
+    expect(rec.log.at(-1)).toMatchObject({ call: 'judgeFirstLine', line: 'Leave a message.', earlier: ['Hi.'], verdict: 'voicemail' });
   });
 
   it('verbatimDeliveryReport logs the report it returned', () => {

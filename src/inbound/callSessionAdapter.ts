@@ -75,6 +75,9 @@ export function buildInboundCallSessionOptions(params: {
           // Inbound never sets recordCalls (the recording notice is part of
           // the outbound DISCLOSURE_LINE), so this is unreachable today.
           break;
+        case 'answer_judged':
+          // Outbound only (#187): the inbound adapter never sets judgeFirstLine.
+          break;
         case 'answering_machine_detected':
           // AMD is an outbound-only concept — Twilio's MachineDetection is
           // only ever requested on originateCall (see
