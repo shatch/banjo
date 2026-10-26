@@ -373,9 +373,15 @@ When a call finishes, after it has hung up, Banjo POSTs:
   "outcome": { "kind": "confirmed", "start": "2026-10-09T18:00:00.000Z", "durationMinutes": 30, "details": "…" },
   "contact": { "id": "1b2e…", "name": "Luigi's" },
   "text": "Banjo booked with Luigi's: Friday, October 9 at 2:00 PM (30 min). Call details are in outcome, …",
-  "finishedAt": "2026-10-05T20:00:00.000Z"
+  "finishedAt": "2026-10-05T20:00:00.000Z",
+  "followUps": ["What events are on in San Juan the week of the 9th."]
 }
 ```
+
+`followUps` is there only when the other party asked for something Banjo couldn't do or answer
+on the call, such as something to look up (#160). Banjo told them it would pass it on, so act on
+it for the owner: look it up, then tell the owner or follow up by text or a later call. `text`
+then says how many there are, never what they say.
 
 with these headers:
 
@@ -409,8 +415,9 @@ agent already knows the result.
 
 `text` is written entirely by Banjo: the outcome, the time and the contact's name from your own
 contacts. It's safe to put in an agent's prompt. The free-text fields in `outcome` (`details`,
-`reason`, `summary`, a voicemail's `message`) are written by the voice model from what the other
-person said on the call, so anyone who answers the phone can influence them. Show them to a
+`reason`, `summary`, a voicemail's `message`), and each entry of `followUps`, are written by the
+voice model from what the other person said on the call, so anyone who answers the phone can
+influence them. Show them to a
 person, or pass them to an agent as clearly marked data, never as instructions.
 
 ### Plain http only to localhost or a Docker service name
@@ -445,5 +452,76 @@ In this layout the agent's MCP URL is `http://banjo:3000/mcp`.
 
 The event is signed but not encrypted, so anything else on that Docker network can read the call's
 outcome. Keep the agent on a network that only it and Banjo share. Banjo logs a warning at startup
-whenever the webhook uses plain `http` to anything but localhost. Encrypting this hop is tracked in
-[#115](https://github.com/shatch/banjo/issues/115).
+whenever the webhook uses plain `http` to anything but localhost.
+
+#### Encrypting both hops with a TLS sidecar
+
+Both directions carry call outcomes: the webhook from Banjo to the agent, and the agent's MCP calls
+to Banjo. To encrypt them, put [Caddy](https://caddyserver.com) between the two with certificates
+from Caddy's own local CA, and have each side trust that CA. Banjo and the agent then sit on
+separate networks, so neither can reach the other except through Caddy:
+
+```yaml
+services:
+  banjo:
+    image: ghcr.io/shatch/banjo:latest
+    # … Banjo's usual settings, plus:
+    environment:
+      TASK_WEBHOOK_URL: https://hermes-tls:8443/webhooks/banjo
+      NODE_EXTRA_CA_CERTS: /caddy-data/caddy/pki/authorities/local/root.crt
+    volumes:
+      - caddy-data:/caddy-data:ro
+    depends_on: [tls]
+    networks: [front]
+  tls:
+    image: caddy:2.10-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks:
+      front:
+        aliases: [hermes-tls]
+      back:
+        aliases: [banjo-tls]
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    command: gateway run
+    volumes:
+      - ./hermes-data:/opt/data
+      - caddy-data:/caddy-data:ro
+    networks: [back]
+volumes:
+  caddy-data:
+networks:
+  front:
+  back:
+```
+
+With this `Caddyfile` next to it:
+
+```
+{
+	local_certs
+	skip_install_trust
+}
+
+https://hermes-tls:8443 {
+	tls internal
+	reverse_proxy hermes:8644
+}
+
+https://banjo-tls:8444 {
+	tls internal
+	reverse_proxy banjo:3000
+}
+```
+
+The agent's MCP URL is then `https://banjo-tls:8444/mcp`. Point the agent at the same root
+certificate, `/caddy-data/caddy/pki/authorities/local/root.crt`; how depends on the agent (for a
+Python agent, usually `SSL_CERT_FILE`).
+
+Caddy writes that root certificate the first time it starts. If Banjo logs
+`Ignoring extra certs from …` at boot, it started before the file existed: restart Banjo. A webhook
+that fails with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` means Banjo isn't trusting Caddy's CA. Only the
+hops from Caddy to each side stay plain `http`, each on a network Caddy shares with just that side.
+The startup warning goes away, since the webhook URL is now `https`.

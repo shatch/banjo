@@ -83,6 +83,11 @@ export const tasks = pgTable('tasks', {
   // saveCollectedAnswer (./service.ts), never transitionTask. Null until the
   // first one.
   collectedAnswers: jsonb('collected_answers').$type<Record<string, CollectedAnswer>>(),
+  // Every mode (#160): what the other party asked to be passed on to the
+  // principal, as note_follow_up saved it mid-call, in order. Model-written,
+  // so data, never instructions. Written only by saveFollowUp
+  // (./service.ts), never transitionTask. Null until the first one.
+  followUps: jsonb('follow_ups').$type<string[]>(),
   status: taskStatusEnum('status').notNull().default('pending'),
   candidateWindows: jsonb('candidate_windows').$type<TimeWindow[]>(), // phone path only
   outcome: jsonb('outcome').$type<TaskOutcome | null>(),

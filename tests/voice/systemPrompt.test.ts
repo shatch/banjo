@@ -558,3 +558,26 @@ describe('arrival windows (2026-10-19 sim)', () => {
     expect(buildBaseSystemPromptGuidance('inbound')).not.toContain('arrival window');
   });
 });
+
+// #160: an outbound call can pass a request on with note_follow_up, so its
+// prompt says how, and still forbids promising when or how they'll hear back.
+// The inbound line has no such tool, so its rule is unchanged.
+describe('passing a request on (#160)', () => {
+  for (const build of [buildBaseSystemPromptGuidance, buildFrontendSystemPromptGuidance]) {
+    it(`${build.name}: outbound calls, booking and ask, are told to note it and promise nothing more`, () => {
+      for (const options of [{}, { purpose: 'ask' as const }]) {
+        const prompt = build('outbound', options);
+        expect(prompt).toContain('Never promise a callback, follow-up');
+        expect(prompt).toMatch(/save it with note_follow_up and say you'll pass it on to Alex/);
+        expect(prompt).toMatch(/never when or how they will hear back/);
+        expect(prompt).not.toContain('this call ends with nothing carried forward');
+      }
+    });
+
+    it(`${build.name}: the inbound line keeps its rule, with no note_follow_up`, () => {
+      const prompt = build('inbound');
+      expect(prompt).not.toContain('note_follow_up');
+      expect(prompt).toContain('this call ends with nothing carried forward');
+    });
+  }
+});

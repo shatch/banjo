@@ -41,7 +41,7 @@ beforeEach(() => {
 });
 
 describe('voice tools: schema + JSON Schema conversion', () => {
-  it('registers all 7 call tools with unique names', () => {
+  it('registers all 8 call tools with unique names', () => {
     const names = callTools.map((t) => t.name);
     expect(names).toEqual([
       // bookingCallTools, then commonCallTools: the order every call gets them in.
@@ -52,6 +52,7 @@ describe('voice tools: schema + JSON Schema conversion', () => {
       'leave_voicemail_and_end_call',
       'escalate_and_end_call',
       'end_call',
+      'note_follow_up',
     ]);
     expect(new Set(names).size).toBe(names.length);
   });

@@ -64,6 +64,21 @@ export function withSavedAnswers(summary: string, contact: Contact, saved: TaskA
 }
 
 /**
+ * `summary` plus what the other party asked to have passed on (#160), as
+ * note_follow_up saved it: the owner's to act on. Fitted to `maxChars`,
+ * falling back to a count when the list won't fit.
+ */
+export function withFollowUps(summary: string, followUps: string[] | null | undefined, maxChars = OWNER_SUMMARY_MAX_CHARS): string {
+  if (!followUps?.length) return summary;
+  const room = maxChars - summary.length - '\n\n'.length;
+  const section = ['They asked you to follow up on:', ...followUps.map((r) => `- ${r}`)].join('\n');
+  if (section.length <= room) return `${summary}\n\n${section}`;
+  const n = followUps.length;
+  const countOnly = `They asked you to follow up on ${n} thing${n === 1 ? '' : 's'}: get_task_status has them.`;
+  return countOnly.length <= room ? `${summary}\n\n${countOnly}` : summary;
+}
+
+/**
  * Builds Steve's outcome summary for a terminal phone-path task. The
  * online-booking path (handled by the schedule-appointment skill) relays its
  * outcome directly in the conversation instead — this is only used for

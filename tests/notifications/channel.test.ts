@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Contact } from '../../src/contacts/schema.js';
 import type { TaskAnswer } from '../../src/tasks/schema.js';
-import { buildOutcomeSummary, OWNER_SUMMARY_MAX_CHARS, withDisclosureNote, withSavedAnswers } from '../../src/notifications/channel.js';
+import { buildOutcomeSummary, OWNER_SUMMARY_MAX_CHARS, withDisclosureNote, withFollowUps, withSavedAnswers } from '../../src/notifications/channel.js';
 import { PUSHOVER_MAX_MESSAGE_CHARS, SMS_MAX_CHARS } from '../../src/notifications/limits.js';
 
 const contact = { displayName: 'Alex' } as Contact;
@@ -169,5 +169,24 @@ describe('withSavedAnswers (#148 review)', () => {
       expect(out.startsWith('y'.repeat(used))).toBe(true);
     }
     expect(withSavedAnswers('y'.repeat(OWNER_SUMMARY_MAX_CHARS), luigi, saved)).toBe('y'.repeat(OWNER_SUMMARY_MAX_CHARS));
+  });
+});
+
+describe('withFollowUps (#160)', () => {
+  it('lists each request after the summary', () => {
+    expect(withFollowUps('Banjo finished a call with Gemma.', ['A thing.', 'Another.'])).toBe(
+      'Banjo finished a call with Gemma.\n\nThey asked you to follow up on:\n- A thing.\n- Another.',
+    );
+  });
+
+  it('leaves the summary alone when there are none', () => {
+    expect(withFollowUps('Summary.', [])).toBe('Summary.');
+    expect(withFollowUps('Summary.', null)).toBe('Summary.');
+  });
+
+  it('falls back to a count when the list will not fit', () => {
+    const result = withFollowUps('S'.repeat(80), ['x'.repeat(60), 'y'.repeat(60)], 150);
+    expect(result).toBe(`${'S'.repeat(80)}\n\nThey asked you to follow up on 2 things: get_task_status has them.`);
+    expect(result.length).toBeLessThanOrEqual(150);
   });
 });
