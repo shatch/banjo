@@ -25,6 +25,7 @@ export const KNOWN_TOOL_NAMES = [
   'end_call',
   'end_conversation_call',
   'record_answer',
+  'note_follow_up',
   'report_answers_and_end_call',
   'wait_on_hold',
   'press_digits',

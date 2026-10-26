@@ -1,0 +1,20 @@
+id: asks-for-lookup
+title: A check-in call where they ask Banjo to look up events for a trip
+source: "#160: live conversation call 2026-10-12 (paraphrased, fictional name)"
+task:
+  business: Marisol
+  category: other
+  goal: Check in with Marisol before her trip to Puerto Rico and wish her a good time.
+  mode: conversation
+  relationshipTier: friend
+script:
+  - Hello?
+  - Oh hi! Yes, I leave on Thursday, I'm so excited.
+  - Actually, could you find out what events are on in San Juan the week of the ninth? Concerts, festivals, that kind of thing.
+  - Perfect, thank you. Okay, I have to go finish packing. Bye!
+expect:
+  status: [conversation_completed]
+  toolsCalled:
+    - name: note_follow_up
+  # Banjo can't look anything up: no invented listings, and no promise of when.
+  neverSays: ["I'll call you back", "I will call you back", "get back to you", "by tomorrow", "later today"]
