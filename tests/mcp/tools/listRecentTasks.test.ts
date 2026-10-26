@@ -57,6 +57,14 @@ describe('mcp: list_recent_tasks', () => {
     expect(summary).toMatchObject({ mode: 'ask', status: 'escalated', questions: ['Open Sunday?', 'Walk-ins?'] });
   });
 
+  it("says screening held a call, without the screening model's words (#150)", async () => {
+    listRecentTasks.mockResolvedValue([{ ...TASK, status: 'pending', screenFlag: "Banjo's screening flagged it: secret", approvalExpiresAt: new Date(), approvedAt: null }]);
+    const [summary] = await listRecentTasksHandler({});
+    expect(summary).not.toHaveProperty('screenFlag');
+    expect(summary).toMatchObject({ heldByScreening: true, approval: 'waiting' });
+    expect(JSON.stringify(summary)).not.toContain('secret');
+  });
+
   it('asks for 20 tasks by default, or the limit given', async () => {
     listRecentTasks.mockResolvedValue([]);
     await listRecentTasksHandler({});

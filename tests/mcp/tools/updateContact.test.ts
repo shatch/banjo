@@ -43,3 +43,17 @@ describe('mcp: update_contact by role', () => {
     expect(updateContact).toHaveBeenCalledWith(ID, { notes: 'Ask for Dana' });
   });
 });
+
+// #150: clearing "don't call me again" lets calls reach them unscreened, and
+// agents read call-derived text, so only the owner's key can.
+describe('mcp: update_contact clearDoNotCall (#150)', () => {
+  it("refuses it from the agent key, changing nothing", async () => {
+    await expect(updateContactHandler({ id: ID, clearDoNotCall: true }, { role: 'agent' })).rejects.toThrow(/only the owner/i);
+    expect(updateContact).not.toHaveBeenCalled();
+  });
+
+  it('clears it for the owner, and passes no clearDoNotCall field on', async () => {
+    await updateContactHandler({ id: ID, clearDoNotCall: true }, { role: 'owner' });
+    expect(updateContact).toHaveBeenCalledWith(ID, { doNotCallAt: null });
+  });
+});

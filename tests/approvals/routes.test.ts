@@ -57,6 +57,14 @@ describe('GET /approve/:taskId', () => {
     expect(triggerOrchestration).not.toHaveBeenCalled();
   });
 
+  it('shows why call screening held it, escaped, and who asked (#150)', async () => {
+    getTask.mockResolvedValue(task({ requestedByAgent: false, screenFlag: "Banjo's screening flagged it: <script>x</script>" }));
+    const html = await (await approvalRoutes.request(`/approve/${ID}?sig=${SIG}`)).text();
+    expect(html).toContain('<dt>Held by call screening</dt><dd>Banjo&#39;s screening flagged it: &lt;script&gt;x&lt;/script&gt;</dd>');
+    expect(html).toContain('<dt>What was asked for</dt>');
+    expect(html).not.toContain('What the agent asked for');
+  });
+
   it("lists an ask call's questions", async () => {
     getTask.mockResolvedValue(task({ mode: 'ask', questions: ['Open <Sunday>?'] }));
     expect(await (await approvalRoutes.request(`/approve/${ID}?sig=${SIG}`)).text()).toContain('1. Open &lt;Sunday&gt;?');

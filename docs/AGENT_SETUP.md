@@ -351,7 +351,18 @@ isn't `none`.
 call, so an agent that can read your texts could approve its own requests. If your agent reads SMS or
 iMessage on your account (iMessage on a Mac with your Apple ID, text forwarding), use
 `NOTIFICATION_CHANNEL=pushover`, not `twilio_sms`. An agent with its own number, which only sees what's
-sent to that number, is fine either way. Your own key (Claude Code) works as before, with no approval step.
+sent to that number, is fine either way. Your own key (Claude Code) works as before, with no approval step,
+unless call screening holds the call.
+
+### Call screening
+
+With `SCREEN_CALLS=true`, Banjo checks every call request, from either key, before placing it, and a
+scheduled call again when it comes due. It holds a call for your approval, with the reason in the
+message, when the person asked on an earlier call not to be called again, when its model flags the
+request (fraud, harassment, getting someone's card number, password or one-time code, pretending to be
+you, unclear instructions), or when the check couldn't run. Nothing is refused: you approve or let it
+lapse. An agent's `ackMessage` says only what kind of hold it was, not the model's reason. To clear a
+"don't call me again", use `update_contact` with `clearDoNotCall: true` and your own key.
 
 ## The task webhook
 

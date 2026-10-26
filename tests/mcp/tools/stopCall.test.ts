@@ -53,7 +53,7 @@ describe('stop_call', () => {
     it('stops a call the agent asked for', async () => {
       const stop = vi.fn(async () => {});
       registerLiveCall({ taskId: 'task-1', callAttemptId: 'attempt-1', session: { stop } });
-      getTask.mockResolvedValueOnce({ id: 'task-1', status: 'calling', approvalExpiresAt: new Date() });
+      getTask.mockResolvedValueOnce({ id: 'task-1', status: 'calling', approvalExpiresAt: new Date(), requestedByAgent: true });
       await expect(stopCallHandler({ taskId: 'task-1' }, agent)).resolves.toMatchObject({ stopped: true });
       expect(stop).toHaveBeenCalled();
     });
@@ -61,7 +61,7 @@ describe('stop_call', () => {
     it("refuses to hang up the owner's own call", async () => {
       const stop = vi.fn(async () => {});
       registerLiveCall({ taskId: 'task-1', callAttemptId: 'attempt-1', session: { stop } });
-      getTask.mockResolvedValueOnce({ id: 'task-1', status: 'calling', approvalExpiresAt: null });
+      getTask.mockResolvedValueOnce({ id: 'task-1', status: 'calling', approvalExpiresAt: null, requestedByAgent: false });
       await expect(stopCallHandler({ taskId: 'task-1' }, agent)).rejects.toThrow(/only.*calls it asked for/);
       expect(stop).not.toHaveBeenCalled();
     });

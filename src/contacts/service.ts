@@ -69,6 +69,7 @@ export async function updateContact(
       | 'email'
       | 'googleResourceName'
       | 'relationshipTier'
+      | 'doNotCallAt'
     >
   >,
 ): Promise<Contact> {
@@ -80,6 +81,16 @@ export async function updateContact(
     .returning();
   if (!row) throw new Error(`Contact not found: ${id}`);
   return row;
+}
+
+/**
+ * Records that this contact asked, on a call, not to be called again
+ * (#150, record_do_not_call): with SCREEN_CALLS on, a later call to them
+ * waits for the owner's approval. Resolves false if there's no such contact.
+ */
+export async function markDoNotCall(id: string): Promise<boolean> {
+  const rows = await db.update(contacts).set({ doNotCallAt: new Date(), updatedAt: new Date() }).where(eq(contacts.id, id)).returning({ id: contacts.id });
+  return rows.length > 0;
 }
 
 /**

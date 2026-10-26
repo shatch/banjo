@@ -10,6 +10,8 @@ const { createTask, triggerOrchestration, countOpenApprovalRequests, cancelPendi
     questions: input.questions ?? null,
     scheduledFor: input.scheduledFor ?? null,
     approvalExpiresAt: input.approvalExpiresAt ?? null,
+    requestedByAgent: input.requestedByAgent ?? false,
+    screenFlag: input.screenFlag ?? null,
   })),
   triggerOrchestration: vi.fn(),
   countOpenApprovalRequests: vi.fn(async () => 0),
@@ -44,6 +46,13 @@ const { addressBookNameFor } = vi.hoisted(() => ({ addressBookNameFor: vi.fn(asy
 vi.mock('../../src/googleContacts/lookup.js', () => ({ addressBookNameFor }));
 vi.mock('../../src/notifications/owner.js', () => ({ sendOwnerMessage }));
 vi.mock('../../src/tasks/orchestrator.js', () => ({ triggerOrchestration }));
+const { screenCall } = vi.hoisted(() => ({
+  screenCall: vi.fn(async (): Promise<{ held: false } | { held: true; kind: 'do_not_call' | 'flagged' | 'check_failed'; reason: string }> => ({ held: false })),
+}));
+vi.mock('../../src/screening/request.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/screening/request.js')>()),
+  screenCall,
+}));
 const { checkCallCap } = vi.hoisted(() => ({
   checkCallCap: vi.fn(
     async () => ({ allowed: true, placed: 0, queued: 0, limit: 3 }) as { allowed: boolean; placed: number; queued: number; nextAllowedAt?: Date; limit: number },
@@ -345,7 +354,7 @@ describe('mcp: place_call with the agent key (owner approval)', () => {
     });
     createTask.mockImplementationOnce(async (input: Record<string, unknown>) => {
       lockLog.push('create');
-      return { id: 'task-1', goalDescription: input.goalDescription, mode: 'booking', questions: null, scheduledFor: null, approvalExpiresAt: input.approvalExpiresAt ?? null };
+      return { id: 'task-1', goalDescription: input.goalDescription, mode: 'booking', questions: null, scheduledFor: null, approvalExpiresAt: input.approvalExpiresAt ?? null, requestedByAgent: true, screenFlag: null };
     });
     await placeCallHandler(input, agent);
     expect(lockLog).toEqual(['lock', 'count', 'create', 'unlock']);
@@ -423,5 +432,61 @@ describe('mcp: place_call with the owner key', () => {
     checkCallCap.mockResolvedValueOnce({ allowed: false, placed: 6, queued: 0, limit: 6 });
     await expect(placeCallHandler({ ...input, overrideCallCap: true }, { role: 'owner' })).rejects.toThrow(/max 6/);
     expect(createTask).not.toHaveBeenCalled();
+  });
+});
+
+describe('mcp: place_call with call screening (#150)', () => {
+  const input = { contactId: CONTACT_ID, taskDescription: 'Book a groom' };
+  const flagged = { held: true as const, kind: 'flagged' as const, reason: "Banjo's screening flagged it: It asks for a one-time code." };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    config.SCREEN_CALLS = true;
+    config.PUBLIC_HOSTNAME = 'banjo.example.com';
+  });
+  afterEach(() => {
+    config.SCREEN_CALLS = false;
+  });
+
+  it('screens nothing when SCREEN_CALLS is off', async () => {
+    config.SCREEN_CALLS = false;
+    await placeCallHandler(input, { role: 'owner' });
+    expect(screenCall).not.toHaveBeenCalled();
+    expect(triggerOrchestration).toHaveBeenCalledWith('task-1');
+  });
+
+  it("places an owner's request that passes, as before", async () => {
+    await placeCallHandler(input, { role: 'owner' });
+    expect(screenCall).toHaveBeenCalledWith(expect.objectContaining({ id: CONTACT_ID }), { mode: 'booking', goal: 'Book a groom', questions: undefined, notes: undefined });
+    expect(createTask).toHaveBeenCalledWith(expect.not.objectContaining({ approvalExpiresAt: expect.anything() }));
+    expect(triggerOrchestration).toHaveBeenCalledWith('task-1');
+  });
+
+  it("holds an owner's flagged request for approval, with the reason, and doesn't dial", async () => {
+    screenCall.mockResolvedValueOnce(flagged);
+    const result = await placeCallHandler(input, { role: 'owner' });
+
+    expect(createTask).toHaveBeenCalledWith(expect.objectContaining({ approvalExpiresAt: expect.any(Date), screenFlag: flagged.reason }));
+    expect(createTask).toHaveBeenCalledWith(expect.not.objectContaining({ requestedByAgent: true }));
+    expect(triggerOrchestration).not.toHaveBeenCalled();
+    const [message] = sendOwnerMessage.mock.calls[0]! as unknown as [string];
+    expect(message).toMatch(/^Banjo was asked, with your own key, to call/);
+    expect(message).toContain(`Held by call screening: ${flagged.reason}`);
+    expect(result.ackMessage).toMatch(/held it for the owner's approval/);
+  });
+
+  it("tells an agent its request was held by screening, but not the model's words", async () => {
+    screenCall.mockResolvedValueOnce(flagged);
+    const result = await placeCallHandler(input, { role: 'agent' });
+    expect(createTask).toHaveBeenCalledWith(expect.objectContaining({ requestedByAgent: true, screenFlag: flagged.reason }));
+    expect(result.ackMessage).toMatch(/Call screening flagged this request/);
+    expect(result.ackMessage).not.toContain('one-time code');
+  });
+
+  it('cancels a held request when the owner cannot be reached', async () => {
+    screenCall.mockResolvedValueOnce({ held: true, kind: 'check_failed', reason: "Banjo's screening check couldn't run on this request." });
+    sendOwnerMessage.mockResolvedValueOnce(false);
+    await expect(placeCallHandler(input, { role: 'owner' })).rejects.toThrow(/Couldn't reach the owner/);
+    expect(cancelPendingTask).toHaveBeenCalledWith('task-1');
+    expect(triggerOrchestration).not.toHaveBeenCalled();
   });
 });

@@ -34,6 +34,7 @@ const ALL_CONFIG_KEYS = [
   'TRANSFER_ENABLED', 'TRANSFER_TO_PHONE_NUMBER', 'TRANSFER_FALLBACK_MESSAGE', 'TRANSFER_MODE', 'HOLD_MAX_MINUTES',
   'MAX_CALLS_PER_NUMBER_PER_DAY', 'CALL_CAP_BUSINESS_NUMBERS', 'CALL_CAP_BUSINESS_MAX',
   'ASK_OWNER_ENABLED', 'ASK_OWNER_TIMEOUT_SECONDS', 'TRANSCRIBE_TRANSFERS', 'PERSIST_TRANSCRIPTS',
+  'SCREEN_CALLS', 'SCREEN_CALLS_MODEL',
 ];
 
 function setEnv(overrides: Record<string, string | undefined>) {
@@ -197,6 +198,27 @@ describe('config: env schema', () => {
       setEnv({ TRANSCRIBE_TRANSFERS: 'true', PERSIST_TRANSCRIPTS: 'true' });
       const { config } = await import('../src/config/index.js');
       expect(config.TRANSCRIBE_TRANSFERS).toBe(true);
+    });
+  });
+
+  describe('SCREEN_CALLS (#150)', () => {
+    it('is off by default', async () => {
+      setEnv({});
+      const { config } = await import('../src/config/index.js');
+      expect(config.SCREEN_CALLS).toBe(false);
+    });
+
+    it('needs a way to reach the owner, since a held call waits for their approval', async () => {
+      setEnv({ SCREEN_CALLS: 'true' });
+      await expect(import('../src/config/index.js')).rejects.toThrow(/SCREEN_CALLS/);
+      vi.resetModules();
+      setEnv({ SCREEN_CALLS: 'true', NOTIFICATION_CHANNEL: 'pushover', PUSHOVER_APP_TOKEN: 't', PUSHOVER_USER_KEY: 'u', PUBLIC_HOSTNAME: 'banjo.example.com', OPENAI_API_KEY: undefined, VOICE_AI_PROVIDER: 'gemini', GEMINI_API_KEY: 'g' });
+      await expect(import('../src/config/index.js')).rejects.toThrow(/SCREEN_CALLS needs OPENAI_API_KEY/);
+      vi.resetModules();
+      setEnv({ SCREEN_CALLS: 'true', NOTIFICATION_CHANNEL: 'pushover', PUSHOVER_APP_TOKEN: 't', PUSHOVER_USER_KEY: 'u', PUBLIC_HOSTNAME: 'banjo.example.com' });
+      const { config } = await import('../src/config/index.js');
+      expect(config.SCREEN_CALLS).toBe(true);
+      expect(config.SCREEN_CALLS_MODEL).toBe('gpt-5.6-terra');
     });
   });
 

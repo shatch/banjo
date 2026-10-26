@@ -1,7 +1,9 @@
 import { createCalendarProvider } from '../calendar/factory.js';
 import type { CalendarProvider } from '../calendar/types.js';
+import { config } from '../config/index.js';
 import { getContact } from '../contacts/service.js';
 import { logger } from '../lib/logger.js';
+import { needsScreeningWhenDue, screenWhenDue } from '../screening/due.js';
 import { CallSession } from '../session/callSession.js';
 import { createTelephonyProvider } from '../telephony/factory.js';
 import { callCapLimit, checkCallCap, describeCallCapRefusal, withContactDialLock } from './callCap.js';
@@ -77,6 +79,16 @@ async function runTask(taskId: string): Promise<void> {
     return;
   }
 
+  // Call screening (#150): a scheduled call is screened again when it comes
+  // due, and any call whose contact has since asked not to be called, before
+  // anything claims it. A held one waits for the owner's approval, which the
+  // check above then waits on; the claim below refuses it too, in case
+  // another process held it after this one read it.
+  if (config.SCREEN_CALLS && task.status === 'pending' && needsScreeningWhenDue(task, contact) && (await screenWhenDue(task, contact))) {
+    logger.info({ taskId }, 'call screening held a call before it was dialed');
+    return;
+  }
+
   // transitionTask leaves a terminal task unchanged and returns it as-is, so
   // each step checks it actually moved: a cancel_task landing between the
   // read above and these writes must stop the run before it dials.
@@ -91,10 +103,11 @@ async function runTask(taskId: string): Promise<void> {
   // it loses its own next step instead of dialing too.
   const checking =
     task.status === 'pending'
-      ? await transitionTask(task.id, 'checking_availability', undefined, { from: ['pending'] })
+      ? await transitionTask(task.id, 'checking_availability', undefined, { from: ['pending'], notAwaitingApproval: true })
       : await transitionTask(task.id, 'checking_availability', undefined, {
           from: ['checking_availability'],
           ifUpdatedAt: task.updatedAt,
+          notAwaitingApproval: true,
         });
   if (checking?.status !== 'checking_availability') {
     logger.info(

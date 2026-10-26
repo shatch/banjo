@@ -7,6 +7,7 @@ import { TimeoutError, withTimeout } from '../../lib/withTimeout.js';
 import { sendOwnerMessage } from '../../notifications/owner.js';
 import type { CallContext } from '../../session/types.js';
 import { collectedAnswer, finalAnswers, reportedAnswerSchema, type ReportedAnswer } from '../../tasks/answers.js';
+import { markDoNotCall } from '../../contacts/service.js';
 import { modeRules } from '../../tasks/modes.js';
 import { isTerminalStatus, MAX_FOLLOW_UPS, saveCollectedAnswer, saveFollowUp, transitionTask } from '../../tasks/service.js';
 import type { TelephonyProvider } from '../../telephony/providers/types.js';
@@ -633,6 +634,35 @@ export const recordAnswerTool: VoiceTool<ReportedAnswer> = defineVoiceTool({
       // replyOnlyIfSilent: the model replies to this only if it said nothing
       // alongside the call; then it's told what to do next (#148 review r2).
       return { ok: true as const, next: RECORD_ANSWER_NEXT };
+    });
+  },
+});
+
+/**
+ * Records that the other party asked not to be called again (#150): the
+ * do-not-call memory call screening reads, so a later call to them waits for
+ * the owner's approval. Offered only with SCREEN_CALLS on
+ * (tasks/callSessionAdapter.ts). Doesn't end the call: Banjo still says
+ * goodbye and ends it the normal way.
+ */
+const RECORD_DO_NOT_CALL_NEXT =
+  `Saved. Tell them in a few words that you're sorry for the trouble and that you'll pass it on to ` +
+  `${config.ASSISTANT_PRINCIPAL_NAME}, then say goodbye and end the call. Don't ask why or try to change their mind.`;
+
+export const recordDoNotCallTool: VoiceTool<Record<string, never>> = defineVoiceTool({
+  name: 'record_do_not_call',
+  description:
+    `Use this as soon as the other party asks not to be called again, by you or by ${config.ASSISTANT_PRINCIPAL_NAME}. ` +
+    `It records their request, so no later call reaches them without ${config.ASSISTANT_PRINCIPAL_NAME}'s say-so. ` +
+    "Don't use it for a request to call back later, or for a busy moment. This does not end the call.",
+  schema: z.object({}).strict(),
+  replyOnlyIfSilent: true,
+  handler: async (_input, ctx) => {
+    return runToolSafely('record_do_not_call', async () => {
+      if (!(await markDoNotCall(ctx.task.contactId))) {
+        return { ok: false as const, error: 'not_saved' as const, message: "Couldn't save it. Still apologize, pass it on, and end the call." };
+      }
+      return { ok: true as const, next: RECORD_DO_NOT_CALL_NEXT };
     });
   },
 });

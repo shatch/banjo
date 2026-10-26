@@ -38,6 +38,10 @@ export async function createTask(input: {
   scheduledFor?: Date;
   /** A call an agent asked for: not placed until the owner approves it, and cancelled if they haven't by then. */
   approvalExpiresAt?: Date;
+  /** Asked for with the agent key: what lets that key cancel or stop it (./approval.ts's askedByAgent). */
+  requestedByAgent?: boolean;
+  /** Why call screening held it for the owner's approval (#150). */
+  screenFlag?: string;
   /** The owner let this call past the per-number cap, up to twice it (./callCap.ts). */
   callCapOverride?: boolean;
 }): Promise<Task> {
@@ -52,6 +56,8 @@ export async function createTask(input: {
       ...(input.questions ? { questions: input.questions } : {}),
       ...(input.scheduledFor ? { scheduledFor: input.scheduledFor } : {}),
       ...(input.approvalExpiresAt ? { approvalExpiresAt: input.approvalExpiresAt } : {}),
+      ...(input.requestedByAgent ? { requestedByAgent: true } : {}),
+      ...(input.screenFlag ? { screenFlag: input.screenFlag } : {}),
       ...(input.callCapOverride ? { callCapOverride: true } : {}),
     })
     .returning();
@@ -81,9 +87,10 @@ function allowedFromStatuses(): Task['status'][] {
 /**
  * transitionTask's compare-and-set: current status in `from`, and (optionally) the row unchanged since `ifUpdatedAt`.
  * `unapproved` also requires that the owner hasn't approved the task, so expiring an agent's request can't land
- * after an approval.
+ * after an approval. `notAwaitingApproval` requires that it isn't waiting for one: the orchestrator's claim, so a
+ * task call screening held after this process read it (another process, #150) can't be dialed.
  */
-export type TransitionGuard = { from: Task['status'][]; ifUpdatedAt?: Date; unapproved?: true };
+export type TransitionGuard = { from: Task['status'][]; ifUpdatedAt?: Date; unapproved?: true; notAwaitingApproval?: true };
 
 type TransitionPatch = Partial<{
   candidateWindows: TimeWindow[];
@@ -141,6 +148,7 @@ export async function transitionTask(
           ? sql`date_trunc('milliseconds', ${tasks.updatedAt}) = ${options.ifUpdatedAt.toISOString()}::timestamptz`
           : undefined,
         options?.unapproved ? isNull(tasks.approvedAt) : undefined,
+        options?.notAwaitingApproval ? or(isNull(tasks.approvalExpiresAt), isNotNull(tasks.approvedAt)) : undefined,
       ),
     )
     .returning();
@@ -179,6 +187,30 @@ export async function saveCollectedAnswer(taskId: string, answer: CollectedAnswe
     .where(and(eq(tasks.id, taskId), ne(tasks.status, 'answered')))
     .returning({ id: tasks.id });
   return rows.length > 0;
+}
+
+/** Phone tasks to a contact updated since `since`, newest first: what call screening sees of past calls (#150). */
+export async function recentTasksForContact(contactId: string, since: Date): Promise<Task[]> {
+  return db
+    .select()
+    .from(tasks)
+    .where(and(eq(tasks.contactId, contactId), eq(tasks.channel, 'phone'), gte(tasks.updatedAt, since)))
+    .orderBy(desc(tasks.updatedAt));
+}
+
+/**
+ * Holds a pending task for the owner's approval (#150): call screening
+ * flagged it when it came due. Clears an earlier approval, since what the
+ * owner approved was the call before this flag. Resolves the task, or
+ * undefined if it's no longer pending.
+ */
+export async function holdForScreening(taskId: string, reason: string, approvalExpiresAt: Date): Promise<Task | undefined> {
+  const [row] = await db
+    .update(tasks)
+    .set({ approvalExpiresAt, approvedAt: null, screenFlag: reason })
+    .where(and(eq(tasks.id, taskId), eq(tasks.status, 'pending')))
+    .returning();
+  return row;
 }
 
 /** At most this many follow-up requests per task (#160): bounded, since each reaches the owner. */
