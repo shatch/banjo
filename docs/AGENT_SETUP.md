@@ -445,5 +445,76 @@ In this layout the agent's MCP URL is `http://banjo:3000/mcp`.
 
 The event is signed but not encrypted, so anything else on that Docker network can read the call's
 outcome. Keep the agent on a network that only it and Banjo share. Banjo logs a warning at startup
-whenever the webhook uses plain `http` to anything but localhost. Encrypting this hop is tracked in
-[#115](https://github.com/shatch/banjo/issues/115).
+whenever the webhook uses plain `http` to anything but localhost.
+
+#### Encrypting both hops with a TLS sidecar
+
+Both directions carry call outcomes: the webhook from Banjo to the agent, and the agent's MCP calls
+to Banjo. To encrypt them, put [Caddy](https://caddyserver.com) between the two with certificates
+from Caddy's own local CA, and have each side trust that CA. Banjo and the agent then sit on
+separate networks, so neither can reach the other except through Caddy:
+
+```yaml
+services:
+  banjo:
+    image: ghcr.io/shatch/banjo:latest
+    # … Banjo's usual settings, plus:
+    environment:
+      TASK_WEBHOOK_URL: https://hermes-tls:8443/webhooks/banjo
+      NODE_EXTRA_CA_CERTS: /caddy-data/caddy/pki/authorities/local/root.crt
+    volumes:
+      - caddy-data:/caddy-data:ro
+    depends_on: [tls]
+    networks: [front]
+  tls:
+    image: caddy:2.10-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks:
+      front:
+        aliases: [hermes-tls]
+      back:
+        aliases: [banjo-tls]
+  hermes:
+    image: nousresearch/hermes-agent:latest
+    command: gateway run
+    volumes:
+      - ./hermes-data:/opt/data
+      - caddy-data:/caddy-data:ro
+    networks: [back]
+volumes:
+  caddy-data:
+networks:
+  front:
+  back:
+```
+
+With this `Caddyfile` next to it:
+
+```
+{
+	local_certs
+	skip_install_trust
+}
+
+https://hermes-tls:8443 {
+	tls internal
+	reverse_proxy hermes:8644
+}
+
+https://banjo-tls:8444 {
+	tls internal
+	reverse_proxy banjo:3000
+}
+```
+
+The agent's MCP URL is then `https://banjo-tls:8444/mcp`. Point the agent at the same root
+certificate, `/caddy-data/caddy/pki/authorities/local/root.crt`; how depends on the agent (for a
+Python agent, usually `SSL_CERT_FILE`).
+
+Caddy writes that root certificate the first time it starts. If Banjo logs
+`Ignoring extra certs from …` at boot, it started before the file existed: restart Banjo. A webhook
+that fails with `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` means Banjo isn't trusting Caddy's CA. Only the
+hops from Caddy to each side stay plain `http`, each on a network Caddy shares with just that side.
+The startup warning goes away, since the webhook URL is now `https`.
