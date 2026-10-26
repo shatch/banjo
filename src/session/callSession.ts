@@ -4,11 +4,12 @@ import type { TelephonyEvent, TelephonyProvider } from '../telephony/providers/t
 import { createVoiceAIProvider } from '../voice/factory.js';
 import { toToolDefinition, type VoiceTool } from '../voice/tools/defineVoiceTool.js';
 import type { ToolDefinition } from '../voice/types.js';
-import type { VerbatimDeliveryReport, VoiceAIEvent, VoiceAIProvider } from '../voice/types.js';
+import type { AnswerVerdict, VerbatimDeliveryReport, VoiceAIEvent, VoiceAIProvider } from '../voice/types.js';
 import { verbatimMatches } from '../voice/verbatimMatch.js';
 import { createAudioPlaybackTracker, type AudioPlaybackTracker } from './audioPlaybackTracker.js';
 import { negotiateAudioFormats, resolveAudioPipeline, type AudioPipeline } from './audioPipeline.js';
 import type { CallContext } from './types.js';
+import { ANSWER_CHECK_MAX_LINES, answerNote } from './answerCheck.js';
 import { checkDisclosure, type DisclosureResult } from './disclosure.js';
 import { isCuttingIn, isSigningOff, saidGoodbye } from './goodbye.js';
 import { holdBudgetMs, isRepeatOnHold, menuPromptNote, personPickedUpNote } from './hold.js';
@@ -167,6 +168,8 @@ type AnsweredBy = Extract<TelephonyEvent, { type: 'answering_machine_detected' }
 export type CallSessionStatusPatch =
   | { kind: 'started'; providerCallId: string }
   | { kind: 'answering_machine_detected'; answeredBy: AnsweredBy }
+  /** Who answered, judged from their first line (#187): how long the judgment took, and whether Banjo had already spoken by then. */
+  | { kind: 'answer_judged'; verdict: AnswerVerdict; latencyMs: number; banjoSpokeFirst: boolean }
   /**
    * `stopped`: ended from outside the session (CallSession.stop, e.g. stop_call), not by either party.
    * `theirReplies`: lines they said after Banjo first spoke (not suspect, #25); absent means none (#179).
@@ -234,6 +237,13 @@ export interface CallSessionOptions<TCtx = CallContext> {
    * hold. Without one, Banjo is told to say it's an AI in its own words.
    */
   pickupLine?: string;
+  /**
+   * Judge who answered from the other party's first line (#187): outbound
+   * calls only, and only on a provider with judgeFirstLine. The verdict is
+   * recorded (onStatusChange's 'answer_judged') and a voicemail or phone
+   * system gets a fixed note (session/answerCheck.ts). Never gates anything.
+   */
+  judgeFirstLine?: boolean;
   /** How long this call may wait on hold (#151). Defaults to HOLD_MAX_MINUTES; always cut short to fit the voice session. */
   maxHoldMs?: number;
   /** A hold started (with how long it may last) or ended because a person picked up (#151). Must not throw into the call. */
@@ -382,6 +392,8 @@ export class CallSession<TCtx = CallContext> {
   private callEndingToolCallId: string | null = null;
   /** Waiting on hold (#151), or null. While set, the silence watchdog stays off and the model is never prompted. */
   private hold: Hold | null = null;
+  /** Who answered (#187): the lines judged so far, whether one is out, and whether it's settled. */
+  private readonly answerCheck = { lines: [] as string[], judging: false, settled: false };
   /** Owner notes (ask_owner answers) that arrived on hold, added when the hold ends. */
   private heldOwnerNotes: string[] = [];
   /** When the voice session connected: a hold must end in time to leave the session room to talk (#151). */
@@ -578,6 +590,7 @@ export class CallSession<TCtx = CallContext> {
             this.considerHoldLine(event.text);
             break;
           }
+          if (event.role === 'user') this.considerFirstLine(event.text);
         }
         // A finalized USER turn is exactly the moment the model is expected
         // to start responding (via OpenAI's server-side VAD auto-response,
@@ -1165,6 +1178,39 @@ export class CallSession<TCtx = CallContext> {
     this.hold = null;
     this.voiceAI.setHold?.(false);
     return hold;
+  }
+
+  /**
+   * Who answered (#187): their first line judged out of band, and a second
+   * one only if the first was unclear. One judgment at a time; a line heard
+   * while one is out isn't judged.
+   */
+  private considerFirstLine(line: string): void {
+    const check = this.answerCheck;
+    if (!this.opts.judgeFirstLine || !this.voiceAI.judgeFirstLine || check.settled || check.judging) return;
+    if (check.lines.length >= ANSWER_CHECK_MAX_LINES) return;
+    void this.judgeFirstLine(line);
+  }
+
+  private async judgeFirstLine(line: string): Promise<void> {
+    const check = this.answerCheck;
+    check.judging = true;
+    const earlier = [...check.lines];
+    check.lines.push(line);
+    const startedAt = Date.now();
+    const verdict = await this.voiceAI.judgeFirstLine!(line, earlier);
+    check.judging = false;
+    const latencyMs = Date.now() - startedAt;
+    const banjoSpokeFirst = this.firstAssistantLine !== undefined;
+    check.settled = verdict !== 'uncertain' || check.lines.length >= ANSWER_CHECK_MAX_LINES;
+    logger.info({ callId: this.opts.callId, verdict, latencyMs, banjoSpokeFirst, line: check.lines.length }, 'judged who answered');
+    void this.opts
+      .onStatusChange({ kind: 'answer_judged', verdict, latencyMs, banjoSpokeFirst })
+      .catch((err: unknown) => logger.warn({ err, callId: this.opts.callId }, 'could not record who answered'));
+    // A note only steers, and not once the call is ending or on hold, where
+    // it would be out of place.
+    const note = answerNote(verdict);
+    if (note && !this.hold && this.callEndingToolCallId === null && !this.isEnding()) this.voiceAI.addContext?.([{ role: 'system', text: note }]);
   }
 
   /** A new line on hold (#151): skipped if it repeats one already heard, otherwise judged, one judgment at a time. */

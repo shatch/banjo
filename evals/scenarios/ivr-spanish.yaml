@@ -16,6 +16,7 @@ script:
   - Bye now!
 expect:
   status: [confirmed]
+  answeredBy: [ivr]
   toolsCalled:
     - name: press_digits
       argsInclude: { digits: "1" }

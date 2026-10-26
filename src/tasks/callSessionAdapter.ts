@@ -237,6 +237,7 @@ export function buildOutboundCallSessionOptions(params: {
     openingLine: disclosureLine(),
     // Nothing is recorded after a hold (#151), so no notice in the reopening.
     pickupLine: disclosureLineWithoutNotice(),
+    judgeFirstLine: true,
     ...(task.constraints?.maxHoldMinutes ? { maxHoldMs: task.constraints.maxHoldMinutes * 60_000 } : {}),
 
     // #151: the owner hears when a hold starts and when someone picks up. A
@@ -301,6 +302,11 @@ export function buildOutboundCallSessionOptions(params: {
           break;
         case 'answering_machine_detected':
           await updateCallAttempt(callAttempt.id, { answeredBy: patch.answeredBy });
+          break;
+        case 'answer_judged':
+          // #187: Banjo's own verdict, in the column Twilio's AMD left empty
+          // since #32. A second judgment of an unclear first line replaces it.
+          await updateCallAttempt(callAttempt.id, { answeredBy: patch.verdict });
           break;
         case 'recording_started':
           await updateCallAttempt(callAttempt.id, { recordingSid: patch.recordingId });

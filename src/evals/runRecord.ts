@@ -5,6 +5,7 @@
  * calendar, so a live run and its replay are graded the same way.
  */
 import type { CollectedAnswer } from '../tasks/schema.js';
+import type { AnswerVerdict } from '../voice/types.js';
 import type { LogEntry } from './recorder.js';
 import { findRescues, type Rescue } from './rescues.js';
 import type { TaskStatus } from './scenario.js';
@@ -21,6 +22,8 @@ export interface RunRecord {
   /** Answers record_answer saved mid-call, which an ask call that ends early has instead of an outcome's. */
   collectedAnswers: Record<string, CollectedAnswer> | null;
   bookedStarts: string[];
+  /** Each verdict the first-line judge gave, in order (#187): the last is what the call recorded. */
+  answeredBy: AnswerVerdict[];
   timeZone: string;
   windowStart: string;
 }
@@ -39,6 +42,7 @@ export function buildRunRecord(
   const toolCalls: RunRecord['toolCalls'] = [];
   const byId = new Map<string, RunRecord['toolCalls'][number]>();
   let holdPickups = 0;
+  const answeredBy: AnswerVerdict[] = [];
   for (const entry of log) {
     if (entry.dir === 'out') {
       const { event } = entry;
@@ -56,6 +60,8 @@ export function buildRunRecord(
     } else if (entry.call === 'sendToolResult') {
       const call = byId.get(entry.toolCallId);
       if (call) Object.assign(call, { result: entry.result, ...(entry.isError && { isError: true }) });
+    } else if (entry.call === 'judgeFirstLine') {
+      answeredBy.push(entry.verdict);
     } else if (entry.call === 'addContext') {
       holdPickups += entry.items.filter((item) => item.role === 'system' && item.text.startsWith(PICKED_UP_PREFIX)).length;
     }
@@ -69,6 +75,7 @@ export function buildRunRecord(
     outcome: task.outcome,
     collectedAnswers: task.collectedAnswers ?? null,
     bookedStarts: calendarEvents.map((e) => new Date(e.startMs).toISOString()),
+    answeredBy,
     timeZone,
     windowStart,
   };

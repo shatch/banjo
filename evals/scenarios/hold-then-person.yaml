@@ -17,6 +17,7 @@ script:
   - Okay, bye!
 expect:
   status: [confirmed]
+  answeredBy: [human, uncertain]
   toolsCalled:
     - name: wait_on_hold
   bookedLocal: { dayOffset: 2, time: "09:00" }

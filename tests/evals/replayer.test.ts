@@ -108,6 +108,24 @@ describe('replay', () => {
     expect(verdicts).toEqual(['menu']);
   });
 
+  it('judgeFirstLine returns the recorded verdict, once the replay reaches it (#187)', async () => {
+    const log = [
+      inp({ call: 'connect', config: CONFIG }),
+      out({ type: 'connected' }),
+      inp({ call: 'judgeFirstLine', line: 'Leave a message.', earlier: [], verdict: 'voicemail' }),
+    ];
+    const voice = new ReplayVoiceAI(recording(log, ['judgeFirstLine']));
+    expect('judgeFirstLine' in voice).toBe(true);
+    const verdicts: string[] = [];
+    voice.on('event', (e) => {
+      if (e.type === 'connected') void voice.judgeFirstLine!('Leave a message.', []).then((v) => verdicts.push(v));
+    });
+    const done = replay(voice, { waitMs: 500 });
+    await voice.connect(SESSION);
+    await expect(done).resolves.toMatchObject({ ok: true });
+    expect(verdicts).toEqual(['voicemail']);
+  });
+
   it('plays the other party hanging up', async () => {
     const log = [inp({ call: 'connect', config: CONFIG }), out({ type: 'connected' }), inp({ call: 'calleeHangsUp' })];
     const voice = new ReplayVoiceAI(recording(log));

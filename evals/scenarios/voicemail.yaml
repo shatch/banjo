@@ -11,6 +11,7 @@ script:
   - ~Please leave your name, number and a short message after the tone. Beep.
 expect:
   status: [voicemail_left]
+  answeredBy: [voicemail]
   toolsCalled:
     - name: leave_voicemail_and_end_call
   toolsNotCalled:

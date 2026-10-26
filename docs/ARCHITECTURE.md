@@ -381,6 +381,21 @@ Tool schemas (`src/voice/tools/callTools.ts`, `src/telephony/dtmf.ts`) are Zod s
 
 **Voicemail vs. human vs. IVR:** the model decides by listening. Twilio's AMD was tried as a telephony-layer signal and dropped — it read business greetings as voicemail (Open Risks #23). IVR menu navigation has no equivalent concrete signal — genuinely the least deterministic part of the system. The model listens to the menu transcript and calls `press_digits` when it identifies a relevant option; `escalate_and_end_call` is the honest fallback when it can't parse the menu, capped at a couple of attempts to avoid looping against a machine that won't accept what it keeps trying. Treat this path as best-effort, not reliable.
 
+**Who answered (#187):** the model still decides by listening, but `CallSession` now also judges the
+other party's first line out of band (`VoiceAIProvider.judgeFirstLine`, OpenAI only, the same
+text-only, tool-less, `conversation: 'none'` check as a hold line), and judges a second line only if
+the first was `uncertain`. The verdict, `human | voicemail | ivr | uncertain`, goes into
+`call_attempts.answered_by`, and the log line `judged who answered` has how long the judgment took
+and whether Banjo had already spoken by then (`banjoSpokeFirst`), which is what live calls need to
+measure before the verdict could gate anything. It only steers: on `voicemail`,
+`session/answerCheck.ts` adds a fixed system note (`addContext`, no reply prompted) pointing at
+`leave_voicemail_and_end_call`, and the note says a person speaking still wins. An `ivr` note was
+tried and dropped: arriving right after "para español, oprima dos", it made Banjo press 2 on
+menu-on-hold in 3 of 3 runs, so a phone system is only recorded. Nothing is refused and nothing hangs up on a verdict. A short or unclear line
+counts as a person, the opposite of Twilio AMD's bias. Outbound only (`judgeFirstLine` in the
+session options); the inbound line doesn't judge. Each eval scenario names the verdicts it allows
+(`expect.answeredBy`, check `answered_by`), so the scenario set also grades the judge.
+
 ---
 
 ## Calendar (`src/calendar/`) — two separate integration points, by design
@@ -754,7 +769,7 @@ _(none currently open — #12 below was the one item here, now fixed)_
 
 8. **[OPEN, accepted for v1]** `GoogleCalendarProvider`'s idempotency check-then-insert has a small race window (two near-simultaneous calls with the *same* idempotency key could both pass the check before either inserts) — this is distinct from the double-booking guard added in `d523f83` (which checks whether the slot is free at all) and remains exactly as originally documented. Requires near-simultaneous duplicate calls with the identical key; this system is single-caller-at-a-time by design, so real-world likelihood is low. A Postgres-backed idempotency table would close it fully if concurrent usage ever becomes real. Doesn't apply to `CaldavCalendarProvider`: its create is a conditional `PUT` (`If-None-Match: *`) to a key-derived resource name, which the server makes atomic.
 9. **[OPEN, accepted tradeoff]** Naive linear-interpolation resampler (`src/telephony/audio/codec.ts`) is correctness-only, not production audio quality — already self-documented as an accepted v1 tradeoff. Only exercised on the Gemini path, which isn't the active provider, so it currently affects nothing live.
-23. **[FIXED — AMD turned off, #32]** Twilio AMD's verdict is a guess, and it misreads business greetings. On the 2026-09-22 demo call a person answered *"Claudia's Fabulous Dog Grooming. This call may be recorded. This is Claudia, how can I help?"* and AMD returned `machine_start`. A long opening utterance is what its heuristic treats as a voicemail greeting, and it's how businesses — most of what Banjo calls — answer the phone. Nothing branches on the verdict today: `CallSession` logs it, the adapter stores it in `call_attempts.answered_by`, and the model decides voicemail-vs-human by listening. So the cost is misleading data, not a wrong call. Before any code starts acting on `answered_by`, either stop requesting AMD (it's billed per call and unused) or raise `MachineDetectionSpeechThreshold` and re-test against real business greetings. Resolved in #32 by not requesting AMD at all: it was unused, billed per call, and wrong for exactly the calls Banjo makes. `answered_by` is null for calls placed since.
+23. **[FIXED — AMD turned off, #32]** Twilio AMD's verdict is a guess, and it misreads business greetings. On the 2026-09-22 demo call a person answered *"Claudia's Fabulous Dog Grooming. This call may be recorded. This is Claudia, how can I help?"* and AMD returned `machine_start`. A long opening utterance is what its heuristic treats as a voicemail greeting, and it's how businesses — most of what Banjo calls — answer the phone. Nothing branches on the verdict today: `CallSession` logs it, the adapter stores it in `call_attempts.answered_by`, and the model decides voicemail-vs-human by listening. So the cost is misleading data, not a wrong call. Before any code starts acting on `answered_by`, either stop requesting AMD (it's billed per call and unused) or raise `MachineDetectionSpeechThreshold` and re-test against real business greetings. Resolved in #32 by not requesting AMD at all: it was unused, billed per call, and wrong for exactly the calls Banjo makes. `answered_by` was null for calls placed since, until #187 put Banjo's own first-line verdict in it (see "Who answered" above).
 
 ### Don't fix — inactive/aspirational code paths, no live traffic today
 
