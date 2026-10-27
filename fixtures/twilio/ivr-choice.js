@@ -18,6 +18,6 @@ exports.handler = function (context, event, callback) {
     return callback(null, twiml);
   }
   twiml.say('Riverside Animal Hospital, this is Dana. How can I help you?');
-  twiml.record({ maxLength: 60, timeout: 8, playBeep: false });
+  twiml.record({ maxLength: 60, timeout: 8, playBeep: false, action: '/end' });
   callback(null, twiml);
 };

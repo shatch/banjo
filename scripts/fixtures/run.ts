@@ -113,7 +113,7 @@ async function main(): Promise<void> {
     checks.push(['opened to the person with the AI disclosure', DISCLOSURE.test(heard)]);
   } else {
     checks.push(['opened to the person with the AI disclosure', DISCLOSURE.test(heard)]);
-    checks.push(['not ended as failed', status !== 'failed']);
+    checks.push(['recorded answered', status === 'answered']);
   }
   console.log(`${fixture}: heard after the fixture's last line: ${JSON.stringify(heard.slice(0, 300))}`);
   for (const [name, pass] of checks) console.log(`  ${pass ? 'pass' : 'FAIL'}  ${name}`);

@@ -366,7 +366,7 @@ phone:
 | --- | --- | --- |
 | `voicemail` | A greeting, then `<Record>` with its beep | `voicemail_left`; the recording opens with the AI disclosure, said once |
 | `ivr` | A menu with a Spanish option first (#204), taking a key or speech | Chose 1, by key press; never 2; opened to the person with the disclosure |
-| `hold` | "Can you hold?", hold messages, then a person | Opened to the person with the disclosure; not `failed` |
+| `hold` | "Can you hold?", hold messages, then a person who answers the question | Opened to the person with the disclosure; recorded `answered` |
 
 **Setup, once.** Buy a number in the Twilio console or API (about $1.15 a month), then set in `.env`:
 `FIXTURE_PHONE_NUMBER`, `FIXTURE_PHONE_NUMBER_SID`, and, after `npm run fixtures:deploy`, the
