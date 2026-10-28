@@ -356,12 +356,9 @@ npm install
 npm run sim
 ```
 
-```
-Banjo is calling Claudia's Dog Grooming for Alex.
-[The phone rings. You pick up.]
-You: Claudia's Dog Grooming, how can I help?
-Banjo: Hi, I'm an AI assistant calling on behalf of Alex. We'd like to book a full grooming for Banjo, a golden retriever...
-```
+![The sim playing a script: Banjo is put on hold, waits through the hold messages, says it's an AI again to the person who picks up, and books an oil change](assets/sim-hold.gif)
+
+_A scripted run (`--script`, playing the lines starting with `~` as a hold queue); long tool results are shortened._
 
 Options: `--business`, `--goal`, `--mode conversation`, `--mode ask` with one or more `--question`
 (checked as `place_call` checks them: 1 to 5, each on one line), `--duration` (booking only), `--transfer` (or `--warm` with `--owner accept|decline|no-answer`), and
