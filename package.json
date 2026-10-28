@@ -22,6 +22,7 @@
     "test:call": "tsx scripts/manual-test-call.ts",
     "sim": "tsx scripts/sim.ts",
     "eval": "tsx scripts/eval.ts",
+    "readme:showcase": "tsx scripts/showcase/render.ts",
     "fixtures:deploy": "tsx scripts/fixtures/deploy.ts",
     "fixtures:call": "tsx scripts/fixtures/run.ts",
     "dav:check": "tsx scripts/dav-check.ts",
