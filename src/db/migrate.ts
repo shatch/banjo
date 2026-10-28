@@ -21,7 +21,12 @@ const migrationsFolder = fileURLToPath(new URL('../../drizzle', import.meta.url)
  * instead of sitting idle in the app's pool for the life of the process.
  */
 export async function runMigrations(): Promise<void> {
-  const migrationClient = postgres(config.DATABASE_URL, { max: 1 });
+  // Without onnotice, postgres-js prints each notice ("already exists, skipping")
+  // to the console on every boot.
+  const migrationClient = postgres(config.DATABASE_URL, {
+    max: 1,
+    onnotice: (notice) => logger.debug({ notice: notice.message }, 'postgres notice during migrations'),
+  });
   try {
     logger.info({ migrationsFolder }, 'applying database migrations');
     await migrate(drizzle(migrationClient), { migrationsFolder });

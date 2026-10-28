@@ -20,7 +20,7 @@ import { parseArgs } from 'node:util';
 import dotenv from 'dotenv';
 import { ensureSimDatabase, emptySimDatabase } from '../src/sim/db.js';
 import { SIM_DATABASE, simEnv } from '../src/sim/env.js';
-import { readScript, runScript, type ScriptStep } from '../src/sim/script.js';
+import { readScript, renderDates, runScript, type ScriptStep } from '../src/sim/script.js';
 // Type-only, so erased: nothing here may load src/config before simEnv is applied.
 import type { TextVoiceAIProvider } from '../src/sim/simCall.js';
 
@@ -49,6 +49,7 @@ Options:
                          with ~ plays 3 seconds after the one before it, without waiting for
                          Banjo: a phone menu or hold queue, which doesn't wait for anyone.
                          (silence N) says nothing for N seconds (1 to 120) once Banjo goes quiet.
+                         {day+N} is said as the date N days from today ("Friday, October 30").
   --verbose              Show the app's info-level logs.
   -h, --help             Show this.
 
@@ -152,7 +153,7 @@ async function main(): Promise<void> {
   if (voice) {
     console.log('[The phone rings. You pick up.]');
     if (scriptLines) {
-      void runScript(scriptLines, voice, call.telephony, print);
+      void runScript(renderDates(scriptLines, new Date(), config.CALENDAR_TIMEZONE), voice, call.telephony, print);
     } else {
       rl.on('line', (line) => {
         const text = line.trim();
