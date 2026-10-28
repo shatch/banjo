@@ -16,6 +16,7 @@ Note: the repo was recently renamed from `ea` to `banjo` (see git history — "c
 npm run test:call          # tsx scripts/manual-test-call.ts — places a real outbound call for manual testing
 npm run sim                # text-mode simulator: type as the business while Banjo calls it (OpenAI key + Postgres only; own banjo_sim DB; see docs/ARCHITECTURE.md)
 npm run eval               # scenario evals (evals/scenarios/*.yaml) against real OpenAI via the sim; warns only. --scenario <id>, --runs N, --record (re-record replays for npm test), --save-baseline
+npm run readme:showcase    # regenerates README's "See it work" from evals/recordings (scripts/showcase/lib.ts's PICKS); run after every --record, or npm test fails
 npm run dav:check          # read-only: lists CalDAV calendars / CardDAV address books, shows what Banjo sees
 npm run setup              # interactive: asks for required settings, validates with the app's own schema, writes .env (backs up an existing one)
 docker compose up          # Postgres + Banjo in Docker (migrations applied on boot)
