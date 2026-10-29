@@ -133,8 +133,9 @@ const THEIR_SPEECH_MAX_MS = 30_000;
 
 /**
  * The silence nudge's cue when Banjo hasn't spoken yet (#118). One-time and
- * self-contained: openai-live keeps appended instructions for the rest of the
- * call, and OpenAI Realtime uses a cue in place of the session instructions.
+ * self-contained: openai-live keeps an appended cue in the conversation for
+ * the rest of the call, and OpenAI Realtime uses a cue in place of the session
+ * instructions.
  */
 export function openingLineCue(openingLine: string): string {
   return `One-time cue for this moment only: you haven't said anything on this call yet. Say exactly the following, word for word, and nothing else, then stop and listen: ${JSON.stringify(openingLine)} Disregard this cue on every later turn.`;
