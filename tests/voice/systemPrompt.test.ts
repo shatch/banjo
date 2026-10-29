@@ -429,8 +429,19 @@ describe('phone menu and hold guidance (#151)', () => {
   it('is left out where the voice provider cannot hold', async () => {
     const { config } = await import('../../src/config/index.js');
     try {
-      config.VOICE_AI_PROVIDER = 'openai-live';
+      config.VOICE_AI_PROVIDER = 'gemini';
       expect(buildBaseSystemPromptGuidance('outbound')).not.toContain('wait_on_hold');
+    } finally {
+      config.VOICE_AI_PROVIDER = 'openai';
+    }
+  });
+
+  it("reaches openai-live's voice layer, which delegates wait_on_hold to its backend", async () => {
+    const { config } = await import('../../src/config/index.js');
+    try {
+      config.VOICE_AI_PROVIDER = 'openai-live';
+      expect(buildBaseSystemPromptGuidance('outbound')).toContain('wait_on_hold');
+      expect(buildFrontendSystemPromptGuidance('outbound')).toContain('wait_on_hold');
     } finally {
       config.VOICE_AI_PROVIDER = 'openai';
     }

@@ -382,8 +382,8 @@ Tool schemas (`src/voice/tools/callTools.ts`, `src/telephony/dtmf.ts`) are Zod s
 **Voicemail vs. human vs. IVR:** the model decides by listening. Twilio's AMD was tried as a telephony-layer signal and dropped — it read business greetings as voicemail (Open Risks #23). IVR menu navigation has no equivalent concrete signal — genuinely the least deterministic part of the system. The model listens to the menu transcript and calls `press_digits` when it identifies a relevant option; `escalate_and_end_call` is the honest fallback when it can't parse the menu, capped at a couple of attempts to avoid looping against a machine that won't accept what it keeps trying. Treat this path as best-effort, not reliable.
 
 **Who answered (#187):** the model still decides by listening, but `CallSession` now also judges the
-other party's first line out of band (`VoiceAIProvider.judgeFirstLine`, OpenAI only, the same
-text-only, tool-less, `conversation: 'none'` check as a hold line), and judges a second line only if
+other party's first line out of band (`VoiceAIProvider.judgeFirstLine`, the same one-word check as a hold line: on `openai` a
+text-only, tool-less, `conversation: 'none'` response; on `openai-live` a Responses API request), and judges a second line only if
 the first was `uncertain`. The verdict, `human | voicemail | ivr | uncertain`, goes into
 `call_attempts.answered_by`, and the log line `judged who answered` has how long the judgment took
 and whether Banjo had already spoken by then (`banjoSpokeFirst`), which is what live calls need to
@@ -672,7 +672,7 @@ This replaced a pause-and-resume design that re-established consent with the new
 **Limits.** A hold lasts at most `HOLD_MAX_MINUTES` (default 20, at most 45), or the task's `constraints.maxHoldMinutes`. It's always cut short to leave 10 minutes of the voice session to talk in, since OpenAI ends a session at 60 minutes with no warning (`VoiceAIProvider.maxSessionMs`). No time left means `wait_on_hold` is refused. Running out ends the call as `escalated` with `stuckAt: 'hold_limit'`. A menu Banjo can't get through is `escalated` with `stuckAt: 'phone_menu'`, from `escalate_and_end_call`. The owner hears when a hold starts (with its limit) and when someone picks up. A hold that runs out reaches them as the usual end-of-call summary.
 
 **Not covered yet:**
-- **The other provider.** `openai-live` can't hold.
+- **`openai-live` holds differently.** Muting its input would also stop its input transcript, which the hold judge reads, so it keeps listening and the adapter drops its speech and transcript and refuses any tool call until the hold ends, with a silent note to the voice layer at each end. Its session lasts 2 hours, so the 10-minute reserve rarely bites. Unverified on a live call.
 - **Barge-in on hold.** Server VAD still raises `interrupted` on the hold music. On hold that only flushes audio Banjo isn't sending.
 - **Real queues.** The judge's accuracy on them is unmeasured: the sim covers the flow (`~` lines in a `--script` play like a recording), not real hold audio.
 
@@ -689,7 +689,7 @@ None of it was captured: a cold transfer drops Banjo off the line, and `transfer
 **When Banjo uses it.** When the other party asks something the task doesn't cover, Banjo says it'll check, which may take a minute or two, and uses `ask_owner`. It never guesses.
 
 **The tool.**
-- It's offered on outbound calls on OpenAI Realtime only, because the answer comes back through `VoiceAIProvider.addContext`.
+- It's offered on outbound calls on `openai` and `openai-live`, the providers with `VoiceAIProvider.addContext`, which the answer comes back through.
 - It returns as soon as the question is sent, so the tool budget never covers the wait.
 
 **The message and the link** (`src/ownerQuestions/`):
