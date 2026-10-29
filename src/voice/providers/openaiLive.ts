@@ -18,9 +18,12 @@
  *     true, and the silence watchdog skips its nudge once and disarms itself.
  *   - verbatim speech: the Live prompting guide says outright "do not treat
  *     model-generated speech as guaranteed verbatim playback." sayVerbatim()
- *     asks for it, and verbatimDeliveryReport() then checks the output
- *     transcript against the intended text (../verbatimMatch.ts), so a
- *     voicemail is only recorded as left when it was actually said.
+ *     synthesizes the message (TTS, in the session's voice) and plays it as
+ *     an audio fixture (`session.output_audio.fixture.play`), reported
+ *     delivered on `fixture.played`. If synthesis fails, it falls back to
+ *     asking the model to say it, and verbatimDeliveryReport() checks the
+ *     output transcript against the intended text (../verbatimMatch.ts), so
+ *     a voicemail is only recorded as left when it was actually said.
  * Final transcripts are synthesized too, for both sides, once fragments go
  * quiet for TRANSCRIPT_IDLE_FINAL_MS: GPT-Live never marks one final, and
  * CallSession both logs only final transcripts and arms its silence watchdog
@@ -90,15 +93,11 @@
  *     goodbye (see docs/ARCHITECTURE.md Open Risks #21).
  *
  * NEEDS VERIFICATION (live call):
- *   1. Whether `session.instructions.append` gets the voice model to speak
- *      promptly — used by both sayVerbatim() and triggerResponse(). Appended
- *      instructions accumulate for the rest of the session (openai-node:
- *      "Append instructions to the Live conversation while it is running"; no
- *      event removes one), so both cues are worded as one-time and a trigger
- *      cue is never re-appended while one is outstanding. The
- *      alternative, `session.commentary.append` ("speakable context... for a
- *      result the model should communicate"), invites paraphrase, which is
- *      why it was not the first choice for verbatim delivery.
+ *   1. Fixtures, commentary and thinking (added 2026-10-28; a wire spike
+ *      confirmed fixture.play on a pcmu session, `fixture.played` after the
+ *      clip, no output transcript for it, and a spoken commentary cue) on a
+ *      real call: does a commentary cue get the model to speak promptly, and
+ *      does the TTS voice sound like the model's own?
  *   2. OUTPUT_IDLE_TURN_END_MS and TRANSCRIPT_IDLE_FINAL_MS are still guesses,
  *      though turn_end with silent frames dropped did fire as expected on two
  *      later live calls (3 and 23 turn_ends).
@@ -114,8 +113,20 @@ import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
 import { config } from '../../config/index.js';
 import { childLogger } from '../../lib/logger.js';
+import { responsesText } from '../../lib/openaiResponses.js';
+import {
+  ANSWER_CHECK_INSTRUCTIONS,
+  answerCheckInput,
+  answerVerdict,
+  HOLD_CHECK_INSTRUCTIONS,
+  HOLD_CHECK_TIMEOUT_MS,
+  holdCheckInput,
+  holdVerdict,
+} from '../judges.js';
 import type {
+  AnswerVerdict,
   AudioChunk,
+  HoldVerdict,
   NormalizedToolCall,
   ToolDefinition,
   VerbatimDeliveryReport,
@@ -157,11 +168,25 @@ export const TRANSCRIPT_IDLE_FINAL_MS = 1200;
  */
 export const CONNECT_TIMEOUT_MS = 10_000;
 
-// Both cues are appended to the session's standing instructions and stay
-// there for the rest of the call (see appendTriggerCue), so each says outright
-// that it applies once.
+/** The generic cue to speak, sent as commentary (see appendTriggerCue). */
 const TRIGGER_RESPONSE_INSTRUCTION =
-  'One-time cue for this moment only, not a standing rule: it is your turn to speak. Respond to the other party now, following your instructions — if the call has only just connected, greet them. Disregard this cue on every later turn.';
+  'Respond to the other party now, following your instructions — if the call has only just connected, greet them.';
+
+/**
+ * How long Live waits before speaking its own acknowledgement of a delegation
+ * ("one moment"). Its default outside Decisions sessions is 0, at once; 400 is
+ * Live's own Decisions default, which leaves room for a quick tool result.
+ */
+const ACKNOWLEDGEMENT_DELAY_MS = 400;
+
+/** Live's voice when the session names none (openai-node: "Defaults to `marin`"). A fixture is synthesized in the same one. */
+const DEFAULT_LIVE_VOICE = 'marin';
+/** Speech synthesis for verbatim fixtures: raw PCM16 at 24 kHz, the only fixture format. */
+const TTS_MODEL = 'gpt-4o-mini-tts';
+const TTS_INSTRUCTIONS = 'Speak warmly and naturally, at an unhurried pace, as on a phone call.';
+const TTS_TIMEOUT_MS = 10_000;
+/** A fixture is at most 30 seconds of PCM16 24 kHz audio. */
+export const FIXTURE_MAX_BYTES = 30 * 24_000 * 2;
 
 type LiveAudioFormat = { type: 'audio/pcmu'; rate: 8000 } | { type: 'audio/pcm'; rate: 16000 | 24000 };
 
@@ -206,6 +231,11 @@ export class OpenAILiveProvider implements VoiceAIProvider {
   /** A triggerResponse() that arrived before session.started: false for none, else its cue (undefined for none). */
   private pendingTriggerResponse: false | { cue?: string } = false;
   private outputSampleRate = 8000;
+  private voice = DEFAULT_LIVE_VOICE;
+  /** Counts sayVerbatim() calls, so audio synthesized for a replaced message is dropped. */
+  private verbatimSeq = 0;
+  /** The text of the fixture sent and not yet reported played. */
+  private fixtureText: string | undefined;
   /** Tracks function_call ids already emitted as tool_call, so a repeated output_item.done can't double-dispatch a tool. */
   private emittedCallIds = new Set<string>();
   private turnEndTimer: ReturnType<typeof setTimeout> | undefined;
@@ -263,6 +293,7 @@ export class OpenAILiveProvider implements VoiceAIProvider {
       );
     }
     const format = toLiveAudioFormat(sessionConfig.outputAudioFormat);
+    this.voice = sessionConfig.voice ?? DEFAULT_LIVE_VOICE;
     this.outputSampleRate = format.rate;
     this.outputFormatType = format.type;
 
@@ -278,6 +309,7 @@ export class OpenAILiveProvider implements VoiceAIProvider {
       },
       delegation: {
         type: 'responses',
+        acknowledgement_delay_ms: ACKNOWLEDGEMENT_DELAY_MS,
         responses: {
           model: config.OPENAI_LIVE_BACKEND_MODEL,
           instructions: sessionConfig.instructions,
@@ -381,7 +413,7 @@ export class OpenAILiveProvider implements VoiceAIProvider {
       return;
     }
     // response.create would only prompt the delegated BACKEND; the voice
-    // front-end has no response trigger, so steer it with an instruction.
+    // front-end has no response trigger, so steer it with commentary.
     // NEEDS VERIFICATION (file header, item 1).
     this.appendTriggerCue(cue);
   }
@@ -390,18 +422,37 @@ export class OpenAILiveProvider implements VoiceAIProvider {
     // Recorded before the connection check, so a dropped request still
     // reports as undelivered rather than as "never asked".
     this.verbatim = { intended: text, spoken: '' };
+    const seq = ++this.verbatimSeq;
+    this.fixtureText = undefined;
     if (!this.isStarted()) {
       log.warn({ textLength: text.length }, 'sayVerbatim called with no started session — message was dropped');
       return;
     }
     this.holdTurnEndForVerbatim = true;
     this.clearTurnEndTimer();
-    // No verbatim mechanism exists — this is a request, not a guarantee;
-    // verbatimDeliveryReport() checks what was actually said. JSON.stringify
-    // quotes the message so a double quote inside it can't end it early.
-    this.appendInstructions(
-      `One-time cue for this moment only: say exactly the following once, word for word, and nothing else — no preamble, no additions, no acknowledgement — and never repeat it on a later turn: ${JSON.stringify(text)}`,
-    );
+    // Played as recorded audio, it is said word for word: the model can't
+    // paraphrase it. If synthesis fails, the model is asked to say it, and
+    // verbatimDeliveryReport() checks what it actually said.
+    void synthesizeSpeech(text, this.voice)
+      .then((audio) => {
+        if (audio.length > FIXTURE_MAX_BYTES) throw new Error(`speech is ${audio.length} bytes, longer than a fixture may be`);
+        return audio;
+      })
+      .then(
+        (audio) => {
+          if (seq !== this.verbatimSeq || !this.isStarted()) return;
+          this.fixtureText = text;
+          this.send({ type: 'session.output_audio.fixture.play', audio: audio.toString('base64') });
+        },
+        (err: unknown) => {
+          if (seq !== this.verbatimSeq || !this.isStarted()) return;
+          log.warn({ err }, 'could not play the message as recorded audio — asking the model to say it');
+          // JSON.stringify quotes the message so a double quote inside it can't end it early.
+          this.appendInstructions(
+            `One-time cue for this moment only: say exactly the following once, word for word, and nothing else — no preamble, no additions, no acknowledgement — and never repeat it on a later turn: ${JSON.stringify(text)}`,
+          );
+        },
+      );
   }
 
   verbatimDeliveryReport(): VerbatimDeliveryReport | undefined {
@@ -412,6 +463,28 @@ export class OpenAILiveProvider implements VoiceAIProvider {
     const { intended } = this.verbatim;
     const spoken = this.verbatim.spoken.trim();
     return { intended, spoken, matched: verbatimMatches(intended, spoken) };
+  }
+
+  /**
+   * Silent context (session.thinking.append): it informs later speech without
+   * asking for any. The other party's words are quoted as theirs, never given
+   * as instructions.
+   */
+  addContext(items: { role: 'system' | 'user'; text: string }[]): void {
+    if (!this.isStarted()) return;
+    for (const { role, text } of items) {
+      this.appendThinking(role === 'user' ? `The other party said: ${JSON.stringify(text)}` : text);
+    }
+  }
+
+  /** What a line heard on hold is (#151), from a Responses request: Live has no out-of-band response of its own. */
+  judgeHoldLine(line: string, earlier: string[]): Promise<HoldVerdict> {
+    return this.judge(HOLD_CHECK_INSTRUCTIONS, holdCheckInput(line, earlier)).then(holdVerdict);
+  }
+
+  /** Who answered (#187), judged the same way. */
+  judgeFirstLine(line: string, earlier: string[]): Promise<AnswerVerdict> {
+    return this.judge(ANSWER_CHECK_INSTRUCTIONS, answerCheckInput(line, earlier)).then(answerVerdict);
   }
 
   async disconnect(): Promise<void> {
@@ -455,22 +528,55 @@ export class OpenAILiveProvider implements VoiceAIProvider {
     this.send({ type: 'session.instructions.append', content, delegation_id: null });
   }
 
+  /** Live caps an append at 500 tokens; this keeps well under it. */
+  private appendThinking(content: string): void {
+    this.send({ type: 'session.thinking.append', content: content.slice(0, 1500), delegation_id: null });
+  }
+
+  /** One out-of-band one-word judgment; undefined if it failed or timed out, which each verdict parser handles. */
+  private judge(instructions: string, input: string): Promise<string | undefined> {
+    return responsesText({ model: config.OPENAI_LIVE_BACKEND_MODEL, instructions, input, timeoutMs: HOLD_CHECK_TIMEOUT_MS }).catch(
+      (err: unknown) => {
+        log.warn({ err }, 'out-of-band judgment failed');
+        return undefined;
+      },
+    );
+  }
+
   /**
-   * session.instructions.append adds to the session's standing instructions
-   * for the rest of the call — openai-node's Live types document it as
-   * appending to the running conversation, with no event that removes one.
-   * A cue appended again before the model acted on the last one only grows
-   * them (and piles up "respond now" against the turn-taking guidance), so
-   * skip it while one is still outstanding.
+   * A fixture leaves no output transcript, so its text is emitted as Banjo's
+   * line here (the disclosure check and the call's transcript read it), and
+   * the voice layer is told what it said, as Live asks for external audio.
    */
-  /** `cue` replaces the generic one; CallSession writes it as a one-time cue too, since instructions stay appended. */
+  private onFixturePlayed(): void {
+    const text = this.fixtureText;
+    if (text === undefined) return;
+    this.fixtureText = undefined;
+    if (this.verbatim?.intended === text) this.verbatim.spoken = text;
+    const pending = this.transcriptTimers.assistant;
+    if (pending) clearTimeout(pending);
+    this.transcriptTimers.assistant = undefined;
+    this.flushTranscript('assistant');
+    this.emitEvent({ type: 'transcript', role: 'assistant', text, isFinal: true });
+    this.appendThinking(`You just said this to them, word for word, as recorded audio: ${JSON.stringify(text)}`);
+    this.holdTurnEndForVerbatim = false;
+    this.armTurnEnd();
+  }
+
+  /**
+   * A cue is commentary (`session.commentary.append`: context for the model
+   * to communicate, which asks it to speak), and stays in the conversation.
+   * One appended again before the model acted on the last would pile up
+   * "respond now" against the turn-taking guidance, so it's skipped while one
+   * is still outstanding. `cue` replaces the generic one.
+   */
   private appendTriggerCue(cue?: string): void {
     if (this.triggerCueOutstanding) {
       log.debug('a response cue is already outstanding — not appending another');
       return;
     }
     this.triggerCueOutstanding = true;
-    this.appendInstructions(cue ?? TRIGGER_RESPONSE_INSTRUCTION);
+    this.send({ type: 'session.commentary.append', content: cue ?? TRIGGER_RESPONSE_INSTRUCTION, delegation_id: null });
   }
 
   /** The model visibly responded (speech audio or a delegated tool call). */
@@ -584,6 +690,23 @@ export class OpenAILiveProvider implements VoiceAIProvider {
         }
         // Backend activity counts as the turn still being in progress — this
         // is also what ends a tool-only turn that never produces audio.
+        if (!this.holdTurnEndForVerbatim) this.armTurnEnd();
+        return;
+      }
+
+      case 'session.output_audio.fixture.playing': {
+        this.noteResponseActivity();
+        return;
+      }
+
+      case 'session.output_audio.fixture.played': {
+        this.onFixturePlayed();
+        return;
+      }
+
+      // The model handed work to the backend: it responded, and its turn goes on.
+      case 'session.delegation.created': {
+        this.noteResponseActivity();
         if (!this.holdTurnEndForVerbatim) this.armTurnEnd();
         return;
       }
@@ -732,4 +855,16 @@ export class OpenAILiveProvider implements VoiceAIProvider {
 function safeResultObject(result: unknown): Record<string, unknown> {
   if (result && typeof result === 'object') return result as Record<string, unknown>;
   return { value: result };
+}
+
+/** The message as raw PCM16 24 kHz speech in `voice`, the format a fixture must be. */
+async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
+  const res = await fetch('https://api.openai.com/v1/audio/speech', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: TTS_MODEL, voice, input: text, instructions: TTS_INSTRUCTIONS, response_format: 'pcm' }),
+    signal: AbortSignal.timeout(TTS_TIMEOUT_MS),
+  });
+  if (!res.ok) throw new Error(`speech synthesis failed: ${res.status}`);
+  return Buffer.from(await res.arrayBuffer());
 }
