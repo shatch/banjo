@@ -770,3 +770,61 @@ describe('OpenAILiveProvider: delegations', () => {
     expect(final?.answered).toBe(true);
   });
 });
+
+describe('OpenAILiveProvider: on hold (#151)', () => {
+  // Muting Live's input also stops its input transcript (wire spike,
+  // 2026-10-28), and CallSession judges each line heard on hold from that
+  // transcript. So the model keeps listening, and its output is held back.
+  it('keeps the other side transcribed, but nothing the model says or does reaches the call', async () => {
+    vi.useFakeTimers();
+    const { provider, ws, events } = await startSession();
+    provider.setHold(true);
+    events.length = 0;
+
+    serverSends(ws, { type: 'session.input_transcript.delta', delta: 'Your call is important to us.' });
+    serverSends(ws, { type: 'session.output_audio.delta', delta: AUDIO });
+    serverSends(ws, { type: 'session.output_transcript.delta', delta: 'Okay, I will keep holding.' });
+    serverSends(ws, functionCallEvent('call_hold', '{"date":"2026-10-30"}'));
+    vi.advanceTimersByTime(TRANSCRIPT_IDLE_FINAL_MS + OUTPUT_IDLE_TURN_END_MS);
+
+    expect(events.filter((e) => e.type === 'transcript' && e.isFinal).map((e) => (e as { role: string }).role)).toEqual(['user']);
+    expect(events.map((e) => e.type)).not.toContain('audio_chunk');
+    expect(events.map((e) => e.type)).not.toContain('tool_call');
+    expect(events.map((e) => e.type)).not.toContain('turn_end');
+    expect(events.filter((e) => e.type === 'transcript' && e.role === 'assistant')).toHaveLength(0);
+  });
+
+  it('answers a tool call made on hold as refused, so the delegated response is not left waiting', async () => {
+    const { provider, ws } = await startSession();
+    provider.setHold(true);
+    serverSends(ws, functionCallEvent('call_hold', '{}'));
+    const output = sent(ws).find((m) => m.type === 'response.item.create');
+    expect(output.item.call_id).toBe('call_hold');
+    expect(JSON.parse(output.item.output)).toMatchObject({ ok: false, error: 'on_hold' });
+    expect(sent(ws).at(-1).type).toBe('response.create');
+  });
+
+  it('tells the voice layer silently when a hold starts and ends', async () => {
+    const { provider, ws } = await startSession();
+    provider.setHold(true);
+    provider.setHold(true); // no second note for the same state
+    provider.setHold(false);
+    const notes = sent(ws).filter((m) => m.type === 'session.thinking.append').map((m) => m.content);
+    expect(notes).toHaveLength(2);
+    expect(notes[0]).toMatch(/on hold/i);
+    expect(notes[1]).toMatch(/hold is over/i);
+  });
+
+  it('lets the model be heard again once the hold ends', async () => {
+    const { provider, ws, events } = await startSession();
+    provider.setHold(true);
+    provider.setHold(false);
+    serverSends(ws, { type: 'session.output_audio.delta', delta: AUDIO });
+    serverSends(ws, functionCallEvent('call_after', '{}'));
+    expect(events.map((e) => e.type)).toEqual(expect.arrayContaining(['audio_chunk', 'tool_call']));
+  });
+
+  it('can hold for most of a session: Live sessions last two hours', () => {
+    expect(new OpenAILiveProvider().maxSessionMs).toBe(2 * 60 * 60_000);
+  });
+});

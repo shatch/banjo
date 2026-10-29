@@ -533,6 +533,22 @@ describe('waiting on hold (#151)', () => {
     expect(build().tools.some((t) => t.name === 'wait_on_hold')).toBe(true);
   });
 
+  it('offers wait_on_hold and ask_owner on openai-live too, and neither on a provider that can do neither', async () => {
+    const { config } = await import('../../src/config/index.js');
+    const names = () => build().tools.map((t) => t.name);
+    try {
+      config.ASK_OWNER_ENABLED = true;
+      config.VOICE_AI_PROVIDER = 'openai-live';
+      expect(names()).toEqual(expect.arrayContaining(['wait_on_hold', 'ask_owner']));
+      config.VOICE_AI_PROVIDER = 'gemini';
+      expect(names()).not.toContain('wait_on_hold');
+      expect(names()).not.toContain('ask_owner');
+    } finally {
+      config.ASK_OWNER_ENABLED = false;
+      config.VOICE_AI_PROVIDER = 'openai';
+    }
+  });
+
   it('offers ask_owner only when ASK_OWNER_ENABLED is on', async () => {
     const { config } = await import('../../src/config/index.js');
     expect(build().tools.some((t) => t.name === 'ask_owner')).toBe(false);

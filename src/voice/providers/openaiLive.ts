@@ -185,6 +185,10 @@ const DEFAULT_LIVE_VOICE = 'marin';
 const TTS_MODEL = 'gpt-4o-mini-tts';
 const TTS_INSTRUCTIONS = 'Speak warmly and naturally, at an unhurried pace, as on a phone call.';
 const TTS_TIMEOUT_MS = 10_000;
+/** Silent notes to the voice layer as a hold starts and ends (#151): while on hold, nothing it says is heard. */
+const HOLD_STARTED_NOTE = 'You are on hold now. Say nothing and do nothing until you are told the hold is over: nothing you say can be heard.';
+const HOLD_ENDED_NOTE = 'The hold is over: you can be heard again. Nothing you said during the hold was heard by anyone.';
+
 /** A fixture is at most 30 seconds of PCM16 24 kHz audio. */
 export const FIXTURE_MAX_BYTES = 30 * 24_000 * 2;
 
@@ -219,6 +223,8 @@ export class OpenAILiveProvider implements VoiceAIProvider {
   readonly emitsInterruptions = false;
   /** Transcripts finalize after an idle, which can be after the turn's tool call. */
   readonly transcriptsLate = true;
+  /** A Live session expires two hours after it starts (session.started's expires_at, seen 2026-10-28). Caps a hold (#151). */
+  readonly maxSessionMs = 2 * 60 * 60_000;
 
   private ws: WebSocket | undefined;
   /** The socket disconnect() is closing: if it hasn't opened yet, `ws` reports the close as an error, which isn't one (#100). */
@@ -232,6 +238,10 @@ export class OpenAILiveProvider implements VoiceAIProvider {
   private pendingTriggerResponse: false | { cue?: string } = false;
   private outputSampleRate = 8000;
   private voice = DEFAULT_LIVE_VOICE;
+  /** On hold (#151): the model keeps listening, and what it says or delegates is kept off the call. */
+  private onHold = false;
+  /** Output audio chunks held back on hold, for the event summary. */
+  private heldOutputAudioChunks = 0;
   /** Counts sayVerbatim() calls, so audio synthesized for a replaced message is dropped. */
   private verbatimSeq = 0;
   /** The text of the fixture sent and not yet reported played. */
@@ -466,6 +476,20 @@ export class OpenAILiveProvider implements VoiceAIProvider {
   }
 
   /**
+   * On hold (#151). Muting Live's input would also stop its input transcript
+   * (wire spike, 2026-10-28), and CallSession judges each line heard on hold
+   * from that transcript. So the model keeps listening, and while on hold its
+   * speech and transcript are dropped and any tool call it makes is refused.
+   */
+  setHold(onHold: boolean): void {
+    if (this.onHold === onHold) return;
+    this.onHold = onHold;
+    if (!this.isStarted()) return;
+    if (onHold) this.flushTranscript('assistant');
+    this.appendThinking(onHold ? HOLD_STARTED_NOTE : HOLD_ENDED_NOTE);
+  }
+
+  /**
    * Silent context (session.thinking.append): it informs later speech without
    * asking for any. The other party's words are quoted as theirs, never given
    * as instructions.
@@ -531,6 +555,14 @@ export class OpenAILiveProvider implements VoiceAIProvider {
   /** Live caps an append at 500 tokens; this keeps well under it. */
   private appendThinking(content: string): void {
     this.send({ type: 'session.thinking.append', content: content.slice(0, 1500), delegation_id: null });
+  }
+
+  /** A tool call made on hold is answered, not run: the delegated response would otherwise wait on it. */
+  private refuseOnHold(callId: string, name: string | undefined): void {
+    if (this.emittedCallIds.has(callId)) return;
+    this.emittedCallIds.add(callId);
+    log.warn({ callId, name }, 'tool call on hold — refused, not run');
+    this.sendToolResult(callId, { ok: false, error: 'on_hold', message: 'You are on hold: nothing was done. Say nothing.' }, true);
   }
 
   /** One out-of-band one-word judgment; undefined if it failed or timed out, which each verdict parser handles. */
@@ -646,6 +678,10 @@ export class OpenAILiveProvider implements VoiceAIProvider {
           this.silentOutputAudioChunks++;
           return;
         }
+        if (this.onHold) {
+          this.heldOutputAudioChunks++;
+          return;
+        }
         this.recordSpeechAudioGap();
         this.noteResponseActivity();
         this.emitEvent({
@@ -657,7 +693,7 @@ export class OpenAILiveProvider implements VoiceAIProvider {
       }
 
       case 'session.output_transcript.delta': {
-        if (typeof msg.delta !== 'string') return;
+        if (typeof msg.delta !== 'string' || this.onHold) return;
         this.assistantTranscript += msg.delta;
         if (this.verbatim) this.verbatim.spoken += msg.delta;
         this.emitEvent({ type: 'transcript', role: 'assistant', text: msg.delta, isFinal: false });
@@ -683,6 +719,10 @@ export class OpenAILiveProvider implements VoiceAIProvider {
 
       case 'response.event': {
         const nested = msg.event;
+        if (nested?.type === 'response.output_item.done' && nested.item?.type === 'function_call' && nested.item.call_id && this.onHold) {
+          this.refuseOnHold(nested.item.call_id, nested.item.name);
+          return;
+        }
         if (nested?.type === 'response.output_item.done' && nested.item?.type === 'function_call' && nested.item.call_id) {
           this.emitToolCall(nested.item.call_id, nested.item.name ?? 'unknown_tool', nested.item.arguments ?? '{}', msg);
         } else if (nested?.type === 'response.failed' || nested?.type === 'error') {
@@ -786,6 +826,7 @@ export class OpenAILiveProvider implements VoiceAIProvider {
         turnEndsEmitted: this.turnEndsEmitted,
         maxSpeechAudioGapMs: this.maxSpeechAudioGapMs,
         silentOutputAudioChunks: this.silentOutputAudioChunks,
+        heldOutputAudioChunks: this.heldOutputAudioChunks,
       },
       'openai live event summary',
     );
