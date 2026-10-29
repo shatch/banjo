@@ -103,8 +103,10 @@
  *      later live calls (3 and 23 turn_ends).
  *   3. Whether a backend function call can ever surface without a nested
  *      `response.output_item.done` (only that event carries `call_id`).
- *   4. GPT-Live's error codes — every error is emitted `retryable: true`,
- *      the same posture as the other adapters.
+ *   4. Every `error` event is emitted `retryable: true`. Live's documented
+ *      codes are command-level (e.g. `unknown_parameter`), and a failure that
+ *      ends the session arrives as session.closed or a socket close, which
+ *      ends the call anyway (docs/ARCHITECTURE.md Open Risks #18).
  * ============================================================================
  */
 
@@ -221,8 +223,6 @@ export class OpenAILiveProvider implements VoiceAIProvider {
   readonly name = 'openai-live';
   /** No interruption event exists on this wire (open risk #15). */
   readonly emitsInterruptions = false;
-  /** Transcripts finalize after an idle, which can be after the turn's tool call. */
-  readonly transcriptsLate = true;
   /** A Live session expires two hours after it starts (session.started's expires_at, seen 2026-10-28). Caps a hold (#151). */
   readonly maxSessionMs = 2 * 60 * 60_000;
 
@@ -876,6 +876,11 @@ export class OpenAILiveProvider implements VoiceAIProvider {
   private emitToolCall(callId: string, name: string, argsStr: string, raw: unknown): void {
     if (this.emittedCallIds.has(callId)) return;
     this.emittedCallIds.add(callId);
+    // A tool call is where CallSession decides (an ending refused for no
+    // goodbye, #102/#167), so what was heard and said by now goes final first:
+    // Live's transcript keeps pace with its audio, and only the idle-final
+    // here held it back (wire spike, 2026-10-28).
+    this.flushPendingTranscripts();
     this.noteResponseActivity();
     let args: Record<string, unknown> = {};
     let unparsedArguments: string | undefined;

@@ -19,7 +19,7 @@ import type {
 /** The optional methods CallSession checks for before using: a recording keeps which ones the session had. */
 export const OPTIONAL_METHODS = ['addContext', 'setHold', 'judgeHoldLine', 'judgeFirstLine', 'verbatimDeliveryReport', 'usageTotals'] as const;
 /** The optional flags CallSession reads off the provider. */
-export const OPTIONAL_PROPS = ['emitsInterruptions', 'transcriptsLate', 'marksVerbatimTurns', 'maxSessionMs'] as const;
+export const OPTIONAL_PROPS = ['emitsInterruptions', 'marksVerbatimTurns', 'maxSessionMs'] as const;
 
 type In<C extends string, T = object> = { dir: 'in'; t: number; call: C } & T;
 
@@ -48,7 +48,6 @@ export class RecordingVoiceAI implements TextVoiceAIProvider {
   // Declared, not initialized: each exists on the instance only if the inner
   // session has it, since CallSession takes a different path without one.
   declare readonly emitsInterruptions?: boolean;
-  declare readonly transcriptsLate?: boolean;
   declare readonly marksVerbatimTurns?: boolean;
   declare readonly maxSessionMs?: number;
   declare addContext?: (items: { role: 'system' | 'user'; text: string }[]) => void;
