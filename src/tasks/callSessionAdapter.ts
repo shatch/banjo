@@ -23,7 +23,7 @@ import {
 } from '../voice/tools/callTools.js';
 import { modeRules } from './modes.js';
 import { askOwnerTool } from '../ownerQuestions/tool.js';
-import { canAskOwner } from '../voice/systemPrompt.js';
+import { canAskOwner, canWaitOnHold } from '../voice/systemPrompt.js';
 import type { VoiceTool } from '../voice/tools/defineVoiceTool.js';
 import { unregisterLiveCall } from './liveCalls.js';
 import { getTask, isTerminalStatus, transitionTask, updateCallAttempt } from './service.js';
@@ -154,11 +154,6 @@ const MODE_TOOLS: Record<Task['mode'], VoiceTool<any, CallContext>[]> = {
   conversation: [endConversationCallTool],
   ask: [recordAnswerTool, reportAnswersAndEndCallTool],
 };
-
-/** Only OpenAI Realtime implements VoiceAIProvider.setHold/judgeHoldLine so far (#151). */
-export function canWaitOnHold(): boolean {
-  return config.VOICE_AI_PROVIDER === 'openai';
-}
 
 /** "12 minutes", "1 minute": for the owner's hold messages. */
 function minutes(ms: number): string {
