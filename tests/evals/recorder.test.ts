@@ -11,7 +11,7 @@ function inner(full: boolean) {
   const emitter = new EventEmitter();
   const base: Record<string, unknown> = {
     name: 'fake',
-    transcriptsLate: false,
+    marksVerbatimTurns: false,
     emitsInterruptions: true,
     connect: async () => {},
     sendAudioChunk: () => {},
@@ -49,9 +49,9 @@ describe('RecordingVoiceAI', () => {
 
   it("copies the inner provider's flags", () => {
     const rec = new RecordingVoiceAI(inner(false));
-    expect(rec.transcriptsLate).toBe(false);
+    expect(rec.marksVerbatimTurns).toBe(false);
     expect(rec.emitsInterruptions).toBe(true);
-    expect(rec.marksVerbatimTurns).toBeUndefined();
+    expect(rec.maxSessionMs).toBeUndefined();
   });
 
   it("logs a capabilities entry first, naming the inner provider's optional methods and flags", () => {
@@ -61,7 +61,7 @@ describe('RecordingVoiceAI', () => {
       t: 0,
       call: 'capabilities',
       has: [...OPTIONAL],
-      props: { emitsInterruptions: true, transcriptsLate: false },
+      props: { emitsInterruptions: true, marksVerbatimTurns: false },
     });
   });
 

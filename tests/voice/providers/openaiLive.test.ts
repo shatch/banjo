@@ -828,3 +828,18 @@ describe('OpenAILiveProvider: on hold (#151)', () => {
     expect(new OpenAILiveProvider().maxSessionMs).toBe(2 * 60 * 60_000);
   });
 });
+
+describe('OpenAILiveProvider: transcripts are final before a decision', () => {
+  // Live's transcript keeps pace with its audio (wire spike, 2026-10-28); the
+  // only lag was this adapter's own idle-final. A tool call is where
+  // CallSession decides (an ending refused for no goodbye, #102/#167), so
+  // every line heard and said by then is emitted as final first.
+  it("emits both sides' pending lines as final before the tool call", async () => {
+    const { ws, events } = await startSession();
+    serverSends(ws, { type: 'session.input_transcript.delta', delta: 'Okay, bye now.' });
+    serverSends(ws, { type: 'session.output_transcript.delta', delta: 'Take care, bye!' });
+    serverSends(ws, functionCallEvent('call_end', '{}'));
+    const order = events.flatMap((e) => (e.type === 'tool_call' ? ['tool_call'] : e.type === 'transcript' && e.isFinal ? [`${e.role}: ${e.text}`] : []));
+    expect(order).toEqual(['user: Okay, bye now.', 'assistant: Take care, bye!', 'tool_call']);
+  });
+});
