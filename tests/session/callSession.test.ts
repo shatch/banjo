@@ -2601,25 +2601,6 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
-    it("doesn't when the other party spoke last, on a provider that transcribes Banjo late", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (fakeVoiceAI as any).transcriptsLate = true;
-      try {
-        const { handler, callTool } = await startWithEndTool();
-        say('user', 'Mhm.');
-        say('assistant', "Okay, let's close this out.");
-        await endTurnAndSettle(callTool('call-1'));
-        say('user', 'Bye now!');
-        await endTurnAndSettle(callTool('call-2'));
-
-        expect(handler).toHaveBeenCalledTimes(1);
-        expect(fakeVoiceAI.sayVerbatim).not.toHaveBeenCalled();
-      } finally {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        delete (fakeVoiceAI as any).transcriptsLate;
-      }
-    });
-
     it('tells the model the refusal is not something the other party said', async () => {
       const { callTool } = await startWithEndTool();
       say('user', 'Mhm.');
@@ -2687,25 +2668,6 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     await endTurnAndSettle(callTool('call-1'));
 
     expect(handler).toHaveBeenCalledTimes(1);
-  });
-
-  it("doesn't refuse when Banjo's line for this turn hasn't been transcribed yet", async () => {
-    // openai-live finalizes transcripts after a 1.2s idle, which can be after
-    // the tool call: the latest line is then still the other party's.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (fakeVoiceAI as any).transcriptsLate = true;
-    try {
-      const { handler, callTool } = await startWithEndTool();
-      say('assistant', 'Anything else?');
-      say('user', 'No, that is all.');
-      await endTurnAndSettle(callTool('call-1'));
-
-      expect(handler).toHaveBeenCalledTimes(1);
-      expect(fakeVoiceAI.sayVerbatim).not.toHaveBeenCalled();
-    } finally {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      delete (fakeVoiceAI as any).transcriptsLate;
-    }
   });
 
   describe('Banjo ends the call without a word since their line (#167)', () => {
@@ -2895,21 +2857,6 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
       expect(handler).toHaveBeenCalledTimes(1);
     });
 
-    it("doesn't hold the call on a provider whose transcripts arrive late: their answer may only be late", async () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (fakeVoiceAI as any).transcriptsLate = true;
-      try {
-        const { handler, callTool } = await startWithEndTool();
-        say('assistant', 'Anything else?');
-        say('assistant', 'Okay, take care. Bye!');
-        await endTurnAndSettle(callTool('call-1'));
-
-        expect(handler).toHaveBeenCalledTimes(1);
-      } finally {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        delete (fakeVoiceAI as any).transcriptsLate;
-      }
-    });
   });
 
   describe('the other party cuts in while Banjo is ending the call (#133)', () => {

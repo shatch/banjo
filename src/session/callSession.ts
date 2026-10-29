@@ -922,9 +922,8 @@ export class CallSession<TCtx = CallContext> {
       // #130: Banjo asked them something ("Anything else…?") and ended the
       // call before they answered, saying goodbye straight after its own
       // question. Refused once without prompting a reply, so it waits for
-      // their answer; if none comes, it's cued to say goodbye. Not where
-      // transcripts arrive late (openai-live): their answer may only be late.
-      if (tool.requiresGoodbye && this.canRefuseEnd() && this.banjoAskedSinceThem && this.voiceAI.transcriptsLate !== true) {
+      // their answer; if none comes, it's cued to say goodbye.
+      if (tool.requiresGoodbye && this.canRefuseEnd() && this.banjoAskedSinceThem) {
         this.endRefused = true;
         this.endRefusals++;
         logger.warn({ callId: this.opts.callId, toolCallId, name }, "Refusing a call-ending tool once: they haven't answered Banjo's question");
@@ -1308,14 +1307,12 @@ export class CallSession<TCtx = CallContext> {
   /**
    * Banjo's turn ended on a question (#179): if they say nothing for
    * QUIET_AFTER_QUESTION_MS once it has played, check they're still there,
-   * then say goodbye. Not on hold, while the call is ending, while #130's own
-   * timer is waiting, or where Banjo's transcripts arrive late (openai-live),
-   * since banjoAskedSinceThem reads them.
+   * then say goodbye. Not on hold, while the call is ending, or while #130's
+   * own timer is waiting.
    */
   private armQuietAfterQuestionTimer(): void {
     if (this.quietAfterQuestionTimer || !this.banjoAskedSinceThem || this.quietCues >= 2) return;
     if (this.hold || this.isEnding() || this.callEndingToolCallId !== null || this.unansweredQuestionTimer) return;
-    if (this.voiceAI.transcriptsLate === true) return;
     const stillPlayingMs = Math.max(0, this.audioPlaybackTracker.estimatedDoneAt() - Date.now());
     this.quietAfterQuestionTimer = setTimeout(() => this.handleQuietAfterQuestion(), stillPlayingMs + QUIET_AFTER_QUESTION_MS);
   }
@@ -1365,13 +1362,9 @@ export class CallSession<TCtx = CallContext> {
     return !this.endRefused && this.endRefusals < MAX_END_REFUSALS;
   }
 
-  /**
-   * They've said something (not suspect, #25) and Banjo hasn't said a word
-   * since (#167). Always false on a provider that transcribes Banjo late
-   * (VoiceAIProvider.transcriptsLate), where a missing line may only be late.
-   */
+  /** They've said something (not suspect, #25) and Banjo hasn't said a word since (#167). */
   private saidNothingSinceThem(): boolean {
-    return this.voiceAI.transcriptsLate !== true && this.lastUserLine !== '' && !this.banjoRepliedToUser;
+    return this.lastUserLine !== '' && !this.banjoRepliedToUser;
   }
 
   private waitForTurnEnd(timeoutMs: number, stopped?: Promise<void>): Promise<void> {

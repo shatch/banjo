@@ -152,14 +152,6 @@ export interface VoiceAIProvider {
    */
   readonly emitsInterruptions?: boolean;
   /**
-   * Optional; true for a provider whose transcript of Banjo's own speech can
-   * arrive after the tool call made in the same turn (openai-live finalizes
-   * after an idle). CallSession then can't tell from transcripts that Banjo
-   * said nothing before ending the call (#167), so it doesn't act on that.
-   * Absent means Banjo's lines are transcribed by the time the turn ends.
-   */
-  readonly transcriptsLate?: boolean;
-  /**
    * Optional; true for a provider that may hold a sayVerbatim() message until
    * another response is done (openai: a second response.create is rejected
    * while one is open, #177), and so marks the message's own turn_end with

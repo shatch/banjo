@@ -57,7 +57,6 @@ export class ReplayVoiceAI implements TextVoiceAIProvider {
   private wake: () => void = () => {};
 
   declare readonly emitsInterruptions?: boolean;
-  declare readonly transcriptsLate?: boolean;
   declare readonly marksVerbatimTurns?: boolean;
   declare readonly maxSessionMs?: number;
   declare addContext?: (items: { role: 'system' | 'user'; text: string }[]) => void;
