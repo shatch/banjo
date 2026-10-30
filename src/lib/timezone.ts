@@ -18,23 +18,39 @@ export interface ZonedParts {
   weekday: number; // 0 (Sunday) - 6 (Saturday), matches Date#getUTCDay()
 }
 
+// Building an Intl.DateTimeFormat is far slower than using one, and
+// zonedTimeToUtcIso reads parts several times per call — one per zone.
+// Capped: a zone name can come from a calendar event's TZID (ical.ts),
+// and Intl accepts any letter case, so the keys aren't a fixed set.
+const partsFormatters = new Map<string, Intl.DateTimeFormat>();
+const MAX_PARTS_FORMATTERS = 64;
+
+function partsFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = partsFormatters.get(timeZone);
+  if (!formatter) {
+    if (partsFormatters.size >= MAX_PARTS_FORMATTERS) partsFormatters.clear();
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    partsFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
 export function getZonedParts(utcIso: string, timeZone: string): ZonedParts {
   const instant = new Date(utcIso);
   if (Number.isNaN(instant.getTime())) {
     throw new Error(`getZonedParts: could not parse "${utcIso}" as a date-time`);
   }
 
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-  const parts = formatter.formatToParts(instant).reduce<Record<string, string>>((acc, p) => {
+  const parts = partsFormatter(timeZone).formatToParts(instant).reduce<Record<string, string>>((acc, p) => {
     acc[p.type] = p.value;
     return acc;
   }, {});
@@ -84,17 +100,37 @@ export function zonedTimeToUtcIso(input: string, timeZone: string): string {
     throw new Error(`zonedTimeToUtcIso: could not parse "${input}" as a date-time`);
   }
 
-  // Step 2: ask what that instant looks like when displayed in `timeZone`.
-  const parts = getZonedParts(asIfUtc.toISOString(), timeZone);
-  const asIfInZoneMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  // Step 2: the offset at that baseline is only a first guess. On a DST
+  // change day the baseline and the real instant can sit on opposite sides
+  // of the switch (#233: 05:00 on 2026-11-01 in New York came out 04:00
+  // EST), so collect the offsets in force around the guess — a day either
+  // side always spans both sides of a switch.
+  const naiveMs = asIfUtc.getTime();
+  const guessMs = naiveMs + utcMinusZonedMs(naiveMs, timeZone);
+  const offsets = [...new Set([-DAY_MS, 0, DAY_MS].map((d) => utcMinusZonedMs(guessMs + d, timeZone)))];
 
-  // Step 3: the gap between the two readings of the same instant IS the
-  // zone's UTC offset at that moment (correctly DST-aware, since it's
-  // derived from the real calendar date, not a fixed offset table). Apply
-  // it to correct the baseline instant to the true UTC instant that
-  // displays as `input` in `timeZone`.
-  const offsetMs = asIfUtc.getTime() - asIfInZoneMs;
-  return new Date(asIfUtc.getTime() + offsetMs).toISOString();
+  // Step 3: keep the offsets under which the instant really displays as
+  // `input`. Two match in the repeated hour when clocks fall back: take the
+  // earlier instant (the first 01:30). None match in the skipped hour when
+  // clocks spring forward: read it with the offset from before the switch,
+  // which moves it forward (02:30 becomes 03:30), never earlier. Both match
+  // what Temporal's default ('compatible') does.
+  const matching = offsets.filter((o) => utcMinusZonedMs(naiveMs + o, timeZone) === o);
+  const offsetMs = matching.length > 0 ? Math.min(...matching) : Math.max(...offsets);
+  return new Date(naiveMs + offsetMs).toISOString();
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * UTC minus the wall-clock time `timeZone` shows at `utcMs`: the amount to
+ * add to a wall-clock reading to get UTC (+4h for EDT). Computed on the
+ * whole second, since getZonedParts drops milliseconds.
+ */
+function utcMinusZonedMs(utcMs: number, timeZone: string): number {
+  const wholeSecondMs = Math.floor(utcMs / 1000) * 1000;
+  const parts = getZonedParts(new Date(wholeSecondMs).toISOString(), timeZone);
+  return wholeSecondMs - Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
 }
 
 /**
