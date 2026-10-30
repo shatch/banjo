@@ -20,11 +20,15 @@ export interface ZonedParts {
 
 // Building an Intl.DateTimeFormat is far slower than using one, and
 // zonedTimeToUtcIso reads parts several times per call — one per zone.
+// Capped: a zone name can come from a calendar event's TZID (ical.ts),
+// and Intl accepts any letter case, so the keys aren't a fixed set.
 const partsFormatters = new Map<string, Intl.DateTimeFormat>();
+const MAX_PARTS_FORMATTERS = 64;
 
 function partsFormatter(timeZone: string): Intl.DateTimeFormat {
   let formatter = partsFormatters.get(timeZone);
   if (!formatter) {
+    if (partsFormatters.size >= MAX_PARTS_FORMATTERS) partsFormatters.clear();
     formatter = new Intl.DateTimeFormat('en-US', {
       timeZone,
       hourCycle: 'h23',
