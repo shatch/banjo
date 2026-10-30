@@ -30,6 +30,47 @@ describe('zonedTimeToUtcIso', () => {
     // Local midnight in New York in August is 04:00 UTC the same day.
     expect(zonedTimeToUtcIso('2026-08-04T00:00:00', 'America/New_York')).toBe('2026-08-04T04:00:00.000Z');
   });
+
+  // #233: the offset was read at the input-as-UTC instant, which on a DST
+  // change day can fall on the other side of the switch from the real one.
+  it('converts early morning on the fall-back day with the standard-time offset', () => {
+    expect(zonedTimeToUtcIso('2026-11-01T05:00:00', 'America/New_York')).toBe('2026-11-01T10:00:00.000Z');
+    expect(zonedTimeToUtcIso('2026-11-01T02:00:00', 'America/New_York')).toBe('2026-11-01T07:00:00.000Z');
+  });
+
+  it('converts early morning on the spring-forward day with the daylight-time offset', () => {
+    expect(zonedTimeToUtcIso('2026-03-08T05:00:00', 'America/New_York')).toBe('2026-03-08T09:00:00.000Z');
+    expect(zonedTimeToUtcIso('2026-03-08T03:00:00', 'America/New_York')).toBe('2026-03-08T07:00:00.000Z');
+  });
+
+  it('converts the hour before the switch in a zone east of UTC (Europe/Berlin)', () => {
+    expect(zonedTimeToUtcIso('2026-10-25T01:30:00', 'Europe/Berlin')).toBe('2026-10-24T23:30:00.000Z');
+    expect(zonedTimeToUtcIso('2026-03-29T01:30:00', 'Europe/Berlin')).toBe('2026-03-29T00:30:00.000Z');
+  });
+
+  it('takes the first occurrence of a repeated time when clocks fall back', () => {
+    // 01:30 happens twice on 2026-11-01: first EDT (05:30Z), then EST (06:30Z).
+    expect(zonedTimeToUtcIso('2026-11-01T01:30:00', 'America/New_York')).toBe('2026-11-01T05:30:00.000Z');
+  });
+
+  it('moves a skipped time forward when clocks spring forward, never earlier', () => {
+    // 02:30 doesn't exist on 2026-03-08; it's read as 02:30 EST, which is 03:30 EDT.
+    expect(zonedTimeToUtcIso('2026-03-08T02:30:00', 'America/New_York')).toBe('2026-03-08T07:30:00.000Z');
+  });
+
+  it('keeps milliseconds instead of folding them into the offset', () => {
+    expect(zonedTimeToUtcIso('2026-08-04T14:00:00.500', 'America/New_York')).toBe('2026-08-04T18:00:00.500Z');
+  });
+
+  it('round-trips every half hour of a year through formatInZone, across zones', () => {
+    for (const zone of ['America/New_York', 'Europe/Berlin', 'Australia/Sydney', 'America/Santiago', 'Australia/Lord_Howe']) {
+      for (let ms = Date.UTC(2026, 0, 1); ms < Date.UTC(2027, 0, 1); ms += 30 * 60 * 1000) {
+        const local = formatInZone(new Date(ms).toISOString(), zone);
+        const utc = zonedTimeToUtcIso(local, zone);
+        if (formatInZone(utc, zone) !== local) throw new Error(`${zone} ${local} -> ${utc}`);
+      }
+    }
+  });
 });
 
 describe('formatInZone', () => {
