@@ -387,26 +387,44 @@ export class TwilioProvider implements TelephonyProvider {
           break;
         }
         case 'start': {
-          callId = resolveCallId(msg.start ?? {});
-          if (!callId) {
+          // One call per socket: a second 'start' never re-points it.
+          if (callId) break;
+          const claimedCallId = resolveCallId(msg.start ?? {});
+          if (!claimedCallId) {
             logger.error({ start: msg.start }, 'Twilio media stream start event carried no resolvable callId — closing, cannot associate this socket with any call');
             ws.close();
             return;
           }
-          this.clearInboundRegistrationTimeout(callId);
-
-          const state: TwilioCallState = this.calls.get(callId) ?? {
-            ws: null,
-            streamSid: null,
-            providerCallId: null,
-            toNumber: '',
-          };
-          state.ws = ws;
           const streamSid: string | undefined = msg.start?.streamSid;
           const callSid: string | undefined = msg.start?.callSid;
+
+          // A stream may only attach to a call Banjo placed or answered
+          // (originateCall / registerInboundCall seed `calls`), only once, and
+          // only with that call's own CallSid once Twilio has told us it. A
+          // made-up id used to create an entry here — latching
+          // isAnyCallActive(), so every inbound call was declined — and a
+          // known one had its socket taken over. The upgrade's signature
+          // check (src/server.ts) is the first gate; this one holds even with
+          // TWILIO_WEBHOOK_VALIDATION_ENABLED off.
+          const state = this.calls.get(claimedCallId);
+          const refusal = !state
+            ? 'no such call'
+            : state.ws
+              ? 'call already has a media stream'
+              : state.providerCallId && state.providerCallId !== callSid
+                ? 'callSid does not match the call'
+                : null;
+          if (!state || refusal) {
+            logger.warn({ callId: claimedCallId, reason: refusal }, 'refusing a media stream start event — closing');
+            ws.close();
+            return;
+          }
+          callId = claimedCallId;
+          this.clearInboundRegistrationTimeout(callId);
+
+          state.ws = ws;
           if (streamSid) state.streamSid = streamSid;
           if (callSid) state.providerCallId = callSid;
-          this.calls.set(callId, state);
 
           const event: TelephonyEvent = {
             callId,

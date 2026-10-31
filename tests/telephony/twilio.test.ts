@@ -27,6 +27,15 @@ function fakeWebSocket() {
   };
 }
 
+/** A provider that has placed `callId` (REST mocked; Twilio answers with `callSid`), so a media stream may attach to it. */
+async function providerWithPlacedCall(callId = 'call-1', callSid = 'CA123') {
+  const provider = new TwilioProvider();
+  const create = vi.fn(async () => ({ sid: callSid }));
+  Object.defineProperty((provider as any).client, 'calls', { value: Object.assign(vi.fn(), { create }), configurable: true });
+  await provider.originateCall({ to: '+15555550100', callId });
+  return provider;
+}
+
 describe('TwilioProvider.buildTwiml', () => {
   it('passes callId via a <Parameter> element, not a query string on the Stream url', () => {
     // Regression test: a live call connected its media-stream WebSocket
@@ -88,7 +97,7 @@ describe('TwilioProvider.handleAmdCallback', () => {
 });
 
 describe('TwilioProvider.handleMediaStreamConnection', () => {
-  it('emits inbound audio as RAW mu-law bytes, not pre-decoded PCM16', () => {
+  it('emits inbound audio as RAW mu-law bytes, not pre-decoded PCM16', async () => {
     // Regression test: a live call connected fine and the caller heard the
     // model speak, but the model never understood anything the caller said —
     // its server-side VAD paused on speech energy but produced no coherent
@@ -98,7 +107,7 @@ describe('TwilioProvider.handleMediaStreamConnection', () => {
     // assumes inbound chunks are still raw mu-law and forwards them
     // untouched — so CallSession sent PCM16 bytes to a session configured
     // for audio/pcmu (mu-law) input, silently corrupting every frame.
-    const provider = new TwilioProvider();
+    const provider = await providerWithPlacedCall('call-1', 'CA123');
     const ws = fakeWebSocket();
     provider.handleMediaStreamConnection(ws as never);
 
@@ -119,7 +128,7 @@ describe('TwilioProvider.handleMediaStreamConnection', () => {
     expect(connectedEvent).toEqual({
       callId: 'call-1', // from customParameters.callId, NOT callSid ('CA123')
       type: 'connected',
-      meta: { callId: 'call-1', providerCallId: 'CA123', toNumber: '' },
+      meta: { callId: 'call-1', providerCallId: 'CA123', toNumber: '+15555550100' },
     });
 
     const originalMuLaw = pcm16ToMuLaw(Buffer.from(new Int16Array([1000, -1000, 500]).buffer));
@@ -133,6 +142,77 @@ describe('TwilioProvider.handleMediaStreamConnection', () => {
     // decoded to PCM16 it would be double the length (2 bytes/sample).
     expect(audioEvent.chunk.data.length).toBe(originalMuLaw.length);
     expect(audioEvent.chunk.data.equals(originalMuLaw)).toBe(true);
+  });
+});
+
+describe('TwilioProvider media stream: only for a call Banjo placed or answered (GHSA-5x8v-r99f-ph3m)', () => {
+  /** Opens a stream, sends `start`, and returns what it emitted and whether it closed. */
+  function openStream(provider: TwilioProvider, start: Record<string, unknown>, inbound = false) {
+    const ws = fakeWebSocket();
+    if (inbound) provider.handleInboundMediaStreamConnection(ws as never);
+    else provider.handleMediaStreamConnection(ws as never);
+    const events: TelephonyEvent[] = [];
+    provider.on('event', (e) => events.push(e));
+    ws.emitMessage({ event: 'start', start });
+    return { ws, events };
+  }
+
+  it('refuses an outbound stream for a callId it never placed, and adds no call', () => {
+    const provider = new TwilioProvider();
+    const { ws, events } = openStream(provider, { streamSid: 'MZ1', callSid: 'CA1', customParameters: { callId: 'made-up' } });
+
+    expect(ws.closed).toBe(true);
+    expect(events).toEqual([]);
+    // Used to add an entry, so every inbound call was declined while the socket stayed open.
+    expect(provider.isAnyCallActive()).toBe(false);
+  });
+
+  it('refuses an inbound stream for a CallSid it never answered, and adds no call', () => {
+    const provider = new TwilioProvider();
+    const { ws, events } = openStream(provider, { streamSid: 'MZ1', callSid: 'CA-unknown' }, true);
+
+    expect(ws.closed).toBe(true);
+    expect(events).toEqual([]);
+    expect(provider.isAnyCallActive()).toBe(false);
+  });
+
+  it('refuses a second stream for a call that already has one, leaving the first in place', async () => {
+    const provider = await providerWithPlacedCall('call-1', 'CA123');
+    const first = openStream(provider, { streamSid: 'MZ1', callSid: 'CA123', customParameters: { callId: 'call-1' } });
+    const second = openStream(provider, { streamSid: 'MZ2', callSid: 'CA123', customParameters: { callId: 'call-1' } });
+
+    expect(first.ws.closed).toBe(false);
+    expect(second.ws.closed).toBe(true);
+    expect(second.events).toEqual([]);
+
+    // The refused socket closing must not end the real call.
+    second.ws.emitClose();
+    expect(provider.isAnyCallActive()).toBe(true);
+  });
+
+  it('refuses an outbound stream whose callSid is not the call Twilio placed', async () => {
+    const provider = await providerWithPlacedCall('call-1', 'CA123');
+    const { ws, events } = openStream(provider, { streamSid: 'MZ1', callSid: 'CA-other', customParameters: { callId: 'call-1' } });
+
+    expect(ws.closed).toBe(true);
+    expect(events).toEqual([]);
+  });
+
+  it('refuses an outbound stream with no callSid once the call has one', async () => {
+    const provider = await providerWithPlacedCall('call-1', 'CA123');
+    const { ws } = openStream(provider, { streamSid: 'MZ1', customParameters: { callId: 'call-1' } });
+
+    expect(ws.closed).toBe(true);
+  });
+
+  it('ignores a second start on an accepted stream rather than re-pointing it', async () => {
+    const provider = await providerWithPlacedCall('call-1', 'CA123');
+    await provider.originateCall({ to: '+15555550101', callId: 'call-2' });
+    const { ws, events } = openStream(provider, { streamSid: 'MZ1', callSid: 'CA123', customParameters: { callId: 'call-1' } });
+    ws.emitMessage({ event: 'start', start: { streamSid: 'MZ2', callSid: 'CA123', customParameters: { callId: 'call-2' } } });
+
+    expect(events.filter((e) => e.type === 'connected').map((e) => e.callId)).toEqual(['call-1']);
+    expect(ws.closed).toBe(false);
   });
 });
 
@@ -273,6 +353,7 @@ describe('TwilioProvider.hangUp: a repeat hang-up is expected, not a warning', (
 describe('TwilioProvider.handleInboundMediaStreamConnection', () => {
   it('resolves callId from the start event\'s own callSid field, not customParameters', () => {
     const provider = new TwilioProvider();
+    provider.registerInboundCall('CA-inbound-1', '+15555550100');
     const ws = fakeWebSocket();
     provider.handleInboundMediaStreamConnection(ws as never);
 
@@ -282,7 +363,7 @@ describe('TwilioProvider.handleInboundMediaStreamConnection', () => {
     ws.emitMessage({ event: 'start', start: { streamSid: 'MZ999', callSid: 'CA-inbound-1' } });
 
     expect(events).toEqual([
-      { callId: 'CA-inbound-1', type: 'connected', meta: { callId: 'CA-inbound-1', providerCallId: 'CA-inbound-1', toNumber: '' } },
+      { callId: 'CA-inbound-1', type: 'connected', meta: { callId: 'CA-inbound-1', providerCallId: 'CA-inbound-1', toNumber: '+15555550100' } },
     ]);
   });
 
@@ -291,6 +372,7 @@ describe('TwilioProvider.handleInboundMediaStreamConnection', () => {
     // guards against (see that describe block above) — the shared helper
     // must preserve it for inbound too.
     const provider = new TwilioProvider();
+    provider.registerInboundCall('CA-inbound-1', '+15555550100');
     const ws = fakeWebSocket();
     provider.handleInboundMediaStreamConnection(ws as never);
 

@@ -71,6 +71,22 @@ export function isValidTwilioSignature(c: Context, body: Record<string, string>)
   return twilioLib.validateRequest(config.TWILIO_AUTH_TOKEN as string, signature, url, body);
 }
 
+/**
+ * isValidTwilioSignature for the Media Streams WebSocket upgrade. Twilio
+ * signs the handshake over the <Stream url> it was given — `wss://`, no
+ * query (it strips one; see TwilioProvider.buildTwiml) and no params — so
+ * that's the URL rebuilt here, from PUBLIC_HOSTNAME like the webhooks'.
+ * Without it anyone reaching the hostname could open a stream (see
+ * handleMediaStreamConnectionCommon's 'start' case for the second gate).
+ */
+export function isValidTwilioStreamSignature(request: IncomingMessage, pathname: string): boolean {
+  if (!config.TWILIO_WEBHOOK_VALIDATION_ENABLED) return true;
+  const signature = request.headers['x-twilio-signature'];
+  if (typeof signature !== 'string' || !signature) return false;
+  const url = `wss://${config.PUBLIC_HOSTNAME}${pathname}`;
+  return twilioLib.validateRequest(config.TWILIO_AUTH_TOKEN as string, signature, url, {});
+}
+
 export const app = new Hono();
 
 // Without this, an incoming webhook that never reaches our route handlers
@@ -386,6 +402,13 @@ export function startServer() {
   server.on('upgrade', (request: IncomingMessage, socket, head) => {
     const url = new URL(request.url ?? '', `http://${request.headers.host}`);
     logger.info({ path: url.pathname, host: request.headers.host }, 'WS upgrade attempt');
+
+    const isStreamPath = url.pathname === '/telephony/twilio/stream' || url.pathname === '/telephony/twilio/inbound-stream';
+    if (isStreamPath && !isValidTwilioStreamSignature(request, url.pathname)) {
+      logger.warn({ path: url.pathname }, 'WS upgrade rejected — invalid Twilio signature');
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
 
     if (url.pathname === '/telephony/twilio/stream') {
       // No callId here — Twilio strips query params from the Stream URL
