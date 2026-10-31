@@ -32,8 +32,10 @@ The things most likely to be wrong, roughly in order of how much damage they do:
   no expiry or automatic rotation; see [`docs/RUNBOOKS.md`](docs/RUNBOOKS.md)'s "Rotating
   `MCP_API_KEY`" and `docs/ARCHITECTURE.md`'s Open Risks.
 - **Twilio webhook signature validation.** `src/server.ts` reconstructs the signed URL from
-  `PUBLIC_HOSTNAME` rather than trusting the request's own `Host` header. Bypasses of that check, or
-  ways to make it validate a request it shouldn't, are in scope. `TWILIO_WEBHOOK_VALIDATION_ENABLED`
+  `PUBLIC_HOSTNAME` rather than trusting the request's own `Host` header, for the webhooks and for the
+  Media Streams WebSocket upgrade (`isValidTwilioStreamSignature`); a stream then attaches only to a
+  call Banjo placed or answered. Bypasses of either check, or ways to make one validate a request it
+  shouldn't, are in scope. `TWILIO_WEBHOOK_VALIDATION_ENABLED`
   exists for local testing; running with it off in production is misconfiguration, not a finding.
 - **Credential exposure.** `GOOGLE_OAUTH_REFRESH_TOKEN`, `TWILIO_AUTH_TOKEN` and voice-AI API keys
   leaking into logs, error responses, MCP tool output, or TwiML.
