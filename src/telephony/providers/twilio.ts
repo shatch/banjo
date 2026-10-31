@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import twilioLib from 'twilio';
 import type WebSocket from 'ws';
@@ -55,10 +56,35 @@ interface TwilioCallState {
   streamSid: string | null;
   providerCallId: string | null;
   toNumber: string;
+  // Single-use secret the call's TwiML hands Twilio as a <Parameter>, which
+  // its media stream must echo in 'start'; cleared once a stream attaches.
+  // The upgrade signature alone covers a fixed URL, the same for every call,
+  // so a captured one would replay forever.
+  streamToken: string | null;
   recordingSid?: string; // set by startRecording, so transferCall can stop it (#7)
   // A start that failed after it was sent (#151): Twilio may still have begun
   // recording, and not list it yet. stopRecording then can't confirm a stop.
   recordingUncertain?: boolean;
+}
+
+function newStreamToken(): string {
+  return randomBytes(32).toString('base64url');
+}
+
+function streamTokenMatches(expected: string | null, given: unknown): boolean {
+  if (!expected || typeof given !== 'string') return false;
+  const a = Buffer.from(expected);
+  const b = Buffer.from(given);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function streamTwiml(path: string, parameters: Record<string, string | null | undefined>): string {
+  const streamUrl = `wss://${config.PUBLIC_HOSTNAME}${path}`;
+  const params = Object.entries(parameters)
+    .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+    .map(([name, value]) => `<Parameter name="${name}" value="${value}" />`)
+    .join('');
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${streamUrl}">${params}</Stream></Connect></Response>`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -172,7 +198,7 @@ export class TwilioProvider implements TelephonyProvider {
     callId: string;
     answeringMachineDetection?: boolean;
   }): Promise<{ providerCallId: string }> {
-    this.calls.set(opts.callId, { ws: null, streamSid: null, providerCallId: null, toNumber: opts.to });
+    this.calls.set(opts.callId, { ws: null, streamSid: null, providerCallId: null, toNumber: opts.to, streamToken: newStreamToken() });
 
     // CONFIRMED against Twilio's Answering Machine Detection docs (2026-08):
     // `machineDetection`/`asyncAmd`/`asyncAmdStatusCallback` below are the
@@ -226,25 +252,24 @@ export class TwilioProvider implements TelephonyProvider {
    * `start.customParameters` once the socket connects (see
    * handleMediaStreamConnection below). An inbound call doesn't need this —
    * see buildInboundTwiml() below, which uses Twilio's own CallSid instead.
+   * The call's streamToken rides along the same way; this TwiML is never
+   * logged, so the token only ever passes between Banjo and Twilio.
    */
   buildTwiml(callId: string): string {
-    const streamUrl = `wss://${config.PUBLIC_HOSTNAME}/telephony/twilio/stream`;
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${streamUrl}"><Parameter name="callId" value="${callId}" /></Stream></Connect></Response>`;
+    return streamTwiml('/telephony/twilio/stream', { callId, streamToken: this.calls.get(callId)?.streamToken });
   }
 
   /**
    * TwiML for `POST /telephony/twilio/inbound` (src/server.ts) once the call
    * has been accepted (INBOUND_BOOKING_ENABLED and not already busy — see
-   * isAnyCallActive() below). Simpler than buildTwiml(): no <Parameter> is
-   * needed because an inbound call's callId IS Twilio's own CallSid
-   * (registerInboundCall below seeds `calls` keyed by it directly — see
-   * src/inbound/schema.ts's doc comment on why no second id is minted),
-   * which the 'start' event's own `start.callSid` field already carries
-   * without a custom parameter.
+   * isAnyCallActive() below). No callId <Parameter>, unlike buildTwiml():
+   * an inbound call's callId IS Twilio's own CallSid (registerInboundCall
+   * below seeds `calls` keyed by it directly — see src/inbound/schema.ts's
+   * doc comment on why no second id is minted), which the 'start' event's
+   * own `start.callSid` field already carries. Only the streamToken.
    */
-  buildInboundTwiml(): string {
-    const streamUrl = `wss://${config.PUBLIC_HOSTNAME}/telephony/twilio/inbound-stream`;
-    return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${streamUrl}" /></Connect></Response>`;
+  buildInboundTwiml(callSid: string): string {
+    return streamTwiml('/telephony/twilio/inbound-stream', { streamToken: this.calls.get(callSid)?.streamToken });
   }
 
   /**
@@ -285,7 +310,7 @@ export class TwilioProvider implements TelephonyProvider {
    * its own doc comment describes for a different code path.
    */
   registerInboundCall(callSid: string, from: string): void {
-    this.calls.set(callSid, { ws: null, streamSid: null, providerCallId: callSid, toNumber: from });
+    this.calls.set(callSid, { ws: null, streamSid: null, providerCallId: callSid, toNumber: from, streamToken: newStreamToken() });
     // .unref() so this timer never keeps the process (or a test run) alive
     // by itself — the server's own listening socket is what keeps a real
     // process running; this timer only needs to fire while something else
@@ -391,7 +416,8 @@ export class TwilioProvider implements TelephonyProvider {
           if (callId) break;
           const claimedCallId = resolveCallId(msg.start ?? {});
           if (!claimedCallId) {
-            logger.error({ start: msg.start }, 'Twilio media stream start event carried no resolvable callId — closing, cannot associate this socket with any call');
+            // Not the whole start: its customParameters carry the streamToken.
+            logger.error({ streamSid: msg.start?.streamSid, callSid: msg.start?.callSid }, 'Twilio media stream start event carried no resolvable callId — closing, cannot associate this socket with any call');
             ws.close();
             return;
           }
@@ -399,21 +425,24 @@ export class TwilioProvider implements TelephonyProvider {
           const callSid: string | undefined = msg.start?.callSid;
 
           // A stream may only attach to a call Banjo placed or answered
-          // (originateCall / registerInboundCall seed `calls`), only once, and
-          // only with that call's own CallSid once Twilio has told us it. A
-          // made-up id used to create an entry here — latching
-          // isAnyCallActive(), so every inbound call was declined — and a
-          // known one had its socket taken over. The upgrade's signature
-          // check (src/server.ts) is the first gate; this one holds even with
+          // (originateCall / registerInboundCall seed `calls`), only once,
+          // only with the streamToken that call's TwiML handed Twilio, and
+          // only with its own CallSid once Twilio has told us it. A made-up
+          // id used to create an entry here — latching isAnyCallActive(), so
+          // every inbound call was declined — and a known one had its socket
+          // taken over. The upgrade's signature check (src/server.ts) is the
+          // first gate; this one holds even with
           // TWILIO_WEBHOOK_VALIDATION_ENABLED off.
           const state = this.calls.get(claimedCallId);
           const refusal = !state
             ? 'no such call'
             : state.ws
               ? 'call already has a media stream'
-              : state.providerCallId && state.providerCallId !== callSid
-                ? 'callSid does not match the call'
-                : null;
+              : !streamTokenMatches(state.streamToken, msg.start?.customParameters?.streamToken)
+                ? 'missing or wrong stream token'
+                : state.providerCallId && state.providerCallId !== callSid
+                  ? 'callSid does not match the call'
+                  : null;
           if (!state || refusal) {
             logger.warn({ callId: claimedCallId, reason: refusal }, 'refusing a media stream start event — closing');
             ws.close();
@@ -422,6 +451,7 @@ export class TwilioProvider implements TelephonyProvider {
           callId = claimedCallId;
           this.clearInboundRegistrationTimeout(callId);
 
+          state.streamToken = null;
           state.ws = ws;
           if (streamSid) state.streamSid = streamSid;
           if (callSid) state.providerCallId = callSid;

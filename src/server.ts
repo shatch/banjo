@@ -32,7 +32,7 @@ interface TwilioHttpHooks {
   handleMediaStreamConnection(ws: WebSocket): void;
   handleAmdCallback(callId: string, answeredBy: string): void;
   handleStatusCallback(callId: string, callStatus: string): void;
-  buildInboundTwiml(): string;
+  buildInboundTwiml(callSid: string): string;
   buildDeclineTwiml(): string;
   isAnyCallActive(): boolean;
   registerInboundCall(callSid: string, from: string): void;
@@ -76,8 +76,10 @@ export function isValidTwilioSignature(c: Context, body: Record<string, string>)
  * signs the handshake over the <Stream url> it was given — `wss://`, no
  * query (it strips one; see TwilioProvider.buildTwiml) and no params — so
  * that's the URL rebuilt here, from PUBLIC_HOSTNAME like the webhooks'.
- * Without it anyone reaching the hostname could open a stream (see
- * handleMediaStreamConnectionCommon's 'start' case for the second gate).
+ * Without it anyone reaching the hostname could open a stream. It signs the
+ * same URL for every call, so a captured signature would replay: the
+ * per-call, single-use streamToken checked in
+ * handleMediaStreamConnectionCommon's 'start' case is the second gate.
  */
 export function isValidTwilioStreamSignature(request: IncomingMessage, pathname: string): boolean {
   if (!config.TWILIO_WEBHOOK_VALIDATION_ENABLED) return true;
@@ -368,7 +370,7 @@ app.post('/telephony/twilio/inbound', async (c) => {
     return c.body(telephony.buildDeclineTwiml(), 200, { 'Content-Type': 'text/xml' });
   }
 
-  const twiml = telephony.buildInboundTwiml();
+  const twiml = telephony.buildInboundTwiml(callSid);
   logger.info({ callSid, from }, 'serving TwiML for inbound call');
   return c.body(twiml, 200, { 'Content-Type': 'text/xml' });
 });

@@ -176,6 +176,8 @@ describe('POST /telephony/twilio/inbound', () => {
 
     expect(registerInboundCall).toHaveBeenCalledWith('CA-inbound-2', '+15555550199');
     expect(createInboundCall).toHaveBeenCalledWith({ twilioCallSid: 'CA-inbound-2', callerPhoneNumber: '+15555550199' });
+    // The TwiML carries that call's stream token, so it must name the call.
+    expect(buildInboundTwiml).toHaveBeenCalledWith('CA-inbound-2');
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain('<Stream url="wss://');
