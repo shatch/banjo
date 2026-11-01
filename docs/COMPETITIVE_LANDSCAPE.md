@@ -328,3 +328,73 @@ on top of the carrier. The turn detector model is under a separate LiveKit Model
 - **Turn detector, adaptive interruption, IVR auto-navigation.** The turn detector needs OpenAI's own turn
   detection turned off and has a separate model license. Adaptive interruption is Cloud-only. IVR
   auto-navigation is Python-only, and Banjo is TypeScript.
+
+---
+
+# 2026-11-01 update: Vaani
+
+A look at [Vaani](https://vaanivoice.ai/) (docs at [docs.vaani.dev](https://docs.vaani.dev/), also served from
+docs.vaanivoice.ai). Sources were all 51 pages in its [docs index](https://docs.vaanivoice.ai/llms.txt), its
+marketing site and its package registry entries. No account was created and no test call was placed, so "not
+documented" below doesn't prove a feature is absent. Vaani's accuracy, latency, compliance and customer claims
+are its own and weren't verified.
+
+## Verdict: do nothing with Vaani
+
+Vaani is a closed, hosted platform for businesses running voice agents at volume. Banjo places calls for one
+person, on infrastructure that person runs. Don't integrate it, and don't build its feature set. The one thing
+to take is a maximum call duration ([#241](https://github.com/shatch/banjo/issues/241)).
+
+## What it is
+
+- **Company:** based in Bangalore and San Francisco. The site is labeled "Stealth Mode — Private Beta", while
+  also claiming SOC2, HIPAA and 50+ teams.
+- **Product:** a dashboard for building agents, with a swappable speech-to-text, LLM and text-to-speech pipeline
+  (Deepgram, ElevenLabs, Sarvam, Cartesia and others) and a focus on Indian languages. It also has campaigns, a
+  knowledge base, a web widget, WhatsApp and Cal.com, plus a REST API, a Python SDK and an MCP server.
+- **Openness:** `vaani-sdk` and `vaani-research-mcp` are MIT, but the platform is closed. Self-hosting is offered
+  to companies with "at-least half a million calls a month".
+- **Price:** no public price list. The docs show `₹5.42/min (est.)` as an example, derived from speech-to-text,
+  LLM and text-to-speech choices, so telephony appears to be extra. That's roughly $0.06/min at about ₹88 to the
+  dollar, against Banjo's $0.11–$0.17 all-in. At personal call volume, the difference is too small to matter.
+- **Docs quality:** the docs contradict themselves (`call.analyzed` vs `call_postprocessing`, `phone_number` vs
+  `contact_number`), and the linked `vaani-mcp` GitHub repo returned a 404 on 2026-11-01.
+
+## Gaps
+
+| Vaani has | Banjo today | Decision |
+| --- | --- | --- |
+| Maximum call duration | Only vendor limits (OpenAI's 60-minute session, Twilio's 4-hour default), plus hold and silence limits | **Build:** [#241](https://github.com/shatch/banjo/issues/241) |
+| Answering machine detection | Open as [#187](https://github.com/shatch/banjo/issues/187); [#238](https://github.com/shatch/banjo/issues/238) is a live miss | **Already tracked:** LiveKit's design (above) is the better model |
+| Pronunciation dictionary | Per-contact field in open PR [#239](https://github.com/shatch/banjo/pull/239) | **Finish #239** |
+| Speech-to-text keyword boosting | Not checked | **Wait:** only if transcripts keep mishearing names |
+| Memory across calls | Inbound sees recent calls; outbound appears limited to notes, with the calling agent holding history | **Wait:** only if a real call suffers from it |
+| Indian languages, code-switching | English in practice | **Wait:** only if real users ask |
+| Separate speech/LLM pipeline with provider failover | OpenAI speech-to-speech only | **Skip:** an outage costs one call, which can be retried |
+| Automated call scoring and sentiment | Evals plus a disclosure check | **Skip:** at this volume, the transcripts can just be read |
+| Campaigns | Per-number call cap | **Never:** works against the cap |
+| Dashboard, builder, web widget, knowledge base, receptionist | Non-goals in `CONTRIBUTING.md` | **Never** |
+| Background office sounds, voice cloning | None | **Never:** both make an AI sound more human, which cuts against the disclosure rules |
+
+Banjo is ahead on what errands depend on. None of this appears in Vaani's docs: pressing digits in phone menus,
+waiting on hold, asking the owner mid-call, approval before dialing, per-number call caps, call screening,
+checking AI disclosure, playing the recording notice before recording starts, a task state machine, or Postgres
+as the source of truth for bookings.
+
+## Why not integrate
+
+- **As a `VoiceAIProvider`:** doesn't fit. Vaani's API dispatches a whole call and owns the carrier, with no
+  audio stream for `CallSession` to use.
+- **Through Bring Your Own LLM, with Banjo as the brain:** the only plausible route, but the
+  [documented protocol](https://docs.vaanivoice.ai/guides/byol.md) is just text turns plus `end_call`, with no
+  digit presses, hold, transfer or verbatim speech. Most of `CallSession` would need rewriting, Banjo could no
+  longer guarantee disclosure and recording order, and call audio would pass through a closed third party.
+- **Running its MCP server alongside Banjo:** needs no Banjo code, but its `trigger_call` bypasses Banjo's
+  approval flow and call caps, so don't give it to an agent that has the Banjo agent key.
+
+## What would change this
+
+- **Real demand for Indian-language calls:** test `gpt-realtime` in those languages first, then revisit Vaani or
+  its voice vendor, Sarvam.
+- **A streaming audio API or an affordable self-hosted tier from Vaani:** the provider route would then be worth
+  another look.
