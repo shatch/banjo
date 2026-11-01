@@ -1,5 +1,6 @@
 import { config } from '../config/index.js';
 import { formatSpokenInZone } from '../lib/timezone.js';
+import { spokenNameRule } from '../contacts/pronunciation.js';
 import type { Task } from '../tasks/schema.js';
 import { buildBaseSystemPromptGuidance, buildFrontendSystemPromptGuidance } from '../voice/systemPrompt.js';
 import type { CallerGreetingContext } from './callerContext.js';
@@ -32,12 +33,14 @@ function formatHour(hour24: number): string {
  * invoke.
  */
 function buildGreetingGuidance(callerContext: CallerGreetingContext): string {
-  const { displayName, relationshipTier, isFrequent } = callerContext;
+  const { displayName, pronunciation, relationshipTier, isFrequent } = callerContext;
+  const said = pronunciation?.trim() || displayName;
+  const sayIt = spokenNameRule(displayName, pronunciation);
   if (relationshipTier === 'family' || relationshipTier === 'friend') {
-    return `\n\nThe caller is recognized as ${displayName}, a ${relationshipTier === 'family' ? 'family member' : 'friend'} of ${config.ASSISTANT_PRINCIPAL_NAME}'s. Greet them warmly by name (e.g. "Hi ${displayName}!") instead of the standard business greeting — your actual job stays exactly the same, helping book, look up, or reschedule an appointment, just with a warmer, more personal tone.`;
+    return `\n\nThe caller is recognized as ${displayName}, a ${relationshipTier === 'family' ? 'family member' : 'friend'} of ${config.ASSISTANT_PRINCIPAL_NAME}'s.${sayIt} Greet them warmly by name (e.g. "Hi ${said}!") instead of the standard business greeting — your actual job stays exactly the same, helping book, look up, or reschedule an appointment, just with a warmer, more personal tone.`;
   }
   if (isFrequent) {
-    return `\n\nThe caller is recognized as ${displayName}, someone who has called or booked before. Acknowledge that briefly and warmly (e.g. "Welcome back, ${displayName}!") before proceeding exactly as normal.`;
+    return `\n\nThe caller is recognized as ${displayName}, someone who has called or booked before.${sayIt} Acknowledge that briefly and warmly (e.g. "Welcome back, ${said}!") before proceeding exactly as normal.`;
   }
   return '';
 }

@@ -311,6 +311,7 @@ The sim covers all three answers with no phone: `npm run sim -- --warm --owner a
   preferredChannel,                        // 'phone' | 'online' | null — null = the skill asks once, then sets this
   bookingUrl,                              // for the skill's online-booking path
   notes,                                   // free text, injected into the live-call system prompt as context
+  pronunciation,                           // how the name is said when the spelling misleads ("Gemma" for "Gema"); owner key only
 }
 ```
 
@@ -430,7 +431,7 @@ Exposed over **HTTP/SSE (remote MCP)**, since Banjo runs as a persistent AWS ser
 - **`get_task_status(taskId)`**, **`list_recent_tasks(limit?)`** — status/history lookups.
 - **`get_call_transcript(taskId)`** — what was said on a task's calls, line by line, when `PERSIST_TRANSCRIPTS` is on; notes every gap (suspect lines, one-sided Gemini calls, saving off). See `call_transcript_turns` above.
 - **`cancel_task(taskId)`** — calls off a phone task that hasn't dialed yet (`pending` or `checking_availability`, typically a scheduled call); a call already underway or finished is left alone, and the orchestrator re-checks the status its own transitions return so a cancel racing a starting run still stops it before dialing.
-- **`find_contact(query)`**, **`list_contacts(category?)`**, **`add_contact(...)`**, **`update_contact(id, { preferredChannel?, bookingUrl?, notes? })`** — contact directory management.
+- **`find_contact(query)`**, **`list_contacts(category?)`**, **`add_contact(...)`**, **`update_contact(id, { preferredChannel?, bookingUrl?, notes?, pronunciation? })`** — contact directory management.
 - **`record_task_outcome(contactId, goalDescription, outcome)`** — lets the skill log a completed online booking into the same task history as phone-based tasks.
 
 ### Agent calls need the owner's approval (`MCP_AGENT_API_KEY`)
@@ -465,7 +466,8 @@ is the one action here that can't be taken back. So the gate is in Banjo, keyed 
 - The approval message must reach the owner somewhere the agent can't read: anyone with the link can
   approve. With an agent that reads the owner's texts, use Pushover, not `twilio_sms`. The agent key can't set a contact's notes (`add_contact` and
   `update_contact` refuse), since they go into every call to that contact and could otherwise change a call
-  after it was approved, nor its booking URL, which Claude Code opens when it books online for the owner.
+  after it was approved, nor its booking URL, which Claude Code opens when it books online for the owner,
+  nor its pronunciation: the approval shows the name, and a pronunciation could have the call say another one.
   At most 3 requests wait at once; the check and the insert run under one lock (`withApprovalRequestLock`).
   A request the agent cancels keeps its place until its 30 minutes are up (`countOpenApprovalRequests`), so
   cancelling and asking again can't flood the owner with messages.

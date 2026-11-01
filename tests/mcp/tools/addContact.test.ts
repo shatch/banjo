@@ -65,6 +65,14 @@ describe('add_contact with the agent key', () => {
     expect(await db.select().from(contacts)).toHaveLength(0);
   });
 
+  // The approval page shows the name, not the pronunciation the call says.
+  it('refuses a pronunciation, adding nothing', async () => {
+    await expect(
+      addContactHandler({ displayName: 'Pharmacy', phoneNumber: '+15551239906', pronunciation: 'Mom' }, { role: 'agent' }),
+    ).rejects.toThrow(/pronunciation/);
+    expect(await db.select().from(contacts)).toHaveLength(0);
+  });
+
   it('adds a contact without notes', async () => {
     const result = await addContactHandler({ displayName: 'Agent Added', phoneNumber: '+15551239902' }, { role: 'agent' });
     expect(result.contact?.displayName ?? result.displayName).toBe('Agent Added');

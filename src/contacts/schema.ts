@@ -24,6 +24,7 @@ export const contacts = pgTable(
     preferredChannel: preferredChannelEnum('preferred_channel'), // null = ask once, then set
     bookingUrl: text('booking_url'), // used by the schedule-appointment skill's online-booking path
     notes: text('notes'), // free text, injected into the live-call system prompt as context
+    pronunciation: text('pronunciation'), // how the name is said when the spelling misleads; see src/contacts/pronunciation.ts
     // The three columns below are enrichment from the address book cache (see
     // src/googleContacts/reconcile.ts) — never set directly by the skill or
     // add_contact/update_contact's normal callers, and never overwritten

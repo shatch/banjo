@@ -74,7 +74,13 @@ describe('resolveCallerContext', () => {
     const contact = await addContact({ displayName: 'Mom', phoneNumber: '+15559990000', relationshipTier: 'family' });
     const result = await resolveCallerContext('+15559990000');
     expect(result.contactId).toBe(contact.id);
-    expect(result.greetingContext).toEqual({ displayName: 'Mom', relationshipTier: 'family', isFrequent: false });
+    expect(result.greetingContext).toEqual({ displayName: 'Mom', pronunciation: null, relationshipTier: 'family', isFrequent: false });
+  });
+
+  it("carries a stored pronunciation into the greeting context", async () => {
+    await addContact({ displayName: 'Gema', phoneNumber: '+15559990001', relationshipTier: 'family', pronunciation: 'Gemma' });
+    const result = await resolveCallerContext('+15559990001');
+    expect(result.greetingContext).toEqual({ displayName: 'Gema', pronunciation: 'Gemma', relationshipTier: 'family', isFrequent: false });
   });
 
   it('personalizes an untiered contact once their interaction count reaches FREQUENT_CONTACT_THRESHOLD (3)', async () => {
@@ -83,7 +89,7 @@ describe('resolveCallerContext', () => {
       await db.insert(inboundCalls).values({ twilioCallSid: `sid-${i}`, callerPhoneNumber: '+15552223333', contactId: contact.id });
     }
     const result = await resolveCallerContext('+15552223333');
-    expect(result.greetingContext).toEqual({ displayName: 'Regular Client', relationshipTier: null, isFrequent: true });
+    expect(result.greetingContext).toEqual({ displayName: 'Regular Client', pronunciation: null, relationshipTier: null, isFrequent: true });
   });
 
   it('does not personalize an untiered contact below the frequency threshold', async () => {
@@ -122,7 +128,7 @@ describe('resolveCallerContext', () => {
 
     const result = await resolveCallerContext('+15556667777');
 
-    expect(result.greetingContext).toEqual({ displayName: 'Friend From Google', relationshipTier: 'friend', isFrequent: false });
+    expect(result.greetingContext).toEqual({ displayName: 'Friend From Google', pronunciation: null, relationshipTier: 'friend', isFrequent: false });
     const rows = await db.select().from(contacts);
     expect(rows).toHaveLength(1);
     expect(rows[0]?.displayName).toBe('Friend From Google');

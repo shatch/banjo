@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { addContact, getContactByPhoneNumber, isContactsUniqueViolation } from '../../contacts/service.js';
 import { contactCategoryEnum } from '../../contacts/schema.js';
+import { PRONUNCIATION_DESCRIPTION, pronunciationSchema } from '../../contacts/pronunciation.js';
 import type { Contact } from '../../contacts/schema.js';
 import type { McpRole } from '../role.js';
 
@@ -15,6 +16,7 @@ export const addContactInputSchema = z.object({
     .string()
     .optional()
     .describe('Free-text notes about this contact — injected into the live-call system prompt as context (hours, quirks, prior history, etc). Only the owner\'s key can set them.'),
+  pronunciation: pronunciationSchema.optional().describe(PRONUNCIATION_DESCRIPTION),
   bookingUrl: z
     .string()
     .url()
@@ -50,6 +52,10 @@ export async function addContactHandler(
   }
   if (ctx.role === 'agent' && input.bookingUrl !== undefined) {
     throw new Error("A contact's booking URL can only be set by the owner: it's the page opened to book online. Leave bookingUrl out to add the contact.");
+  }
+  // The approval page shows the contact's name, not this: from an agent it could have the call say another name.
+  if (ctx.role === 'agent' && input.pronunciation !== undefined) {
+    throw new Error("A contact's pronunciation can only be set by the owner: every call to them says the name that way. Leave pronunciation out to add the contact.");
   }
   // The name goes into every call's prompt as well: from an agent, one short line only.
   if (ctx.role === 'agent' && (/[\r\n\u0085\u2028\u2029]/.test(input.displayName) || input.displayName.length > MAX_AGENT_NAME_CHARS)) {
