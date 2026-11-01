@@ -12,6 +12,7 @@ import { E164_PATTERN } from './service.js';
 
 export interface CallerGreetingContext {
   displayName: string;
+  pronunciation?: string | null;
   relationshipTier: Contact['relationshipTier'];
   isFrequent: boolean;
 }
@@ -72,7 +73,7 @@ export async function resolveCallerContext(callerPhoneNumber: string): Promise<R
     return {
       contactId: contact.id,
       greetingContext: personalize
-        ? { displayName: contact.displayName, relationshipTier: contact.relationshipTier, isFrequent }
+        ? { displayName: contact.displayName, pronunciation: contact.pronunciation, relationshipTier: contact.relationshipTier, isFrequent }
         : undefined,
     };
   } catch (err) {

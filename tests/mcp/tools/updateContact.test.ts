@@ -57,3 +57,19 @@ describe('mcp: update_contact clearDoNotCall (#150)', () => {
     expect(updateContact).toHaveBeenCalledWith(ID, { doNotCallAt: null });
   });
 });
+
+// Every call says the name the way pronunciation says, and the approval page
+// shows only the name: from an agent, "Pharmacy" could be greeted as "Mom".
+describe('mcp: update_contact pronunciation', () => {
+  it('refuses it from the agent key, changing nothing', async () => {
+    await expect(updateContactHandler({ id: ID, pronunciation: 'Mom' }, { role: 'agent' })).rejects.toThrow(/pronunciation/);
+    expect(updateContact).not.toHaveBeenCalled();
+  });
+
+  it('sets and clears it for the owner', async () => {
+    await updateContactHandler({ id: ID, pronunciation: 'Gemma' }, { role: 'owner' });
+    expect(updateContact).toHaveBeenCalledWith(ID, { pronunciation: 'Gemma' });
+    await updateContactHandler({ id: ID, pronunciation: null }, { role: 'owner' });
+    expect(updateContact).toHaveBeenLastCalledWith(ID, { pronunciation: null });
+  });
+});

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { updateContact } from '../../contacts/service.js';
 import { preferredChannelEnum } from '../../contacts/schema.js';
+import { PRONUNCIATION_DESCRIPTION, pronunciationSchema } from '../../contacts/pronunciation.js';
 import type { Contact } from '../../contacts/schema.js';
 import type { McpRole } from '../role.js';
 
@@ -16,6 +17,10 @@ export const updateContactInputSchema = z.object({
     .optional()
     .describe("Online booking URL for this contact. Only the owner's key can change it: it's the page opened to book online."),
   notes: z.string().optional().describe('Free-text notes to store on this contact (overwrites existing notes).'),
+  pronunciation: pronunciationSchema
+    .nullable()
+    .optional()
+    .describe(`${PRONUNCIATION_DESCRIPTION} Pass null to remove it.`),
   clearDoNotCall: z
     .literal(true)
     .optional()
@@ -42,6 +47,10 @@ export async function updateContactHandler(
   }
   if (ctx.role === 'agent' && input.bookingUrl !== undefined) {
     throw new Error("A contact's booking URL can only be changed by the owner: it's the page opened to book online. Leave bookingUrl out to update the rest.");
+  }
+  // The approval page shows the contact's name, not this: from an agent it could have the call say another name.
+  if (ctx.role === 'agent' && input.pronunciation !== undefined) {
+    throw new Error("A contact's pronunciation can only be changed by the owner: every call to them says the name that way. Leave pronunciation out to update the rest.");
   }
   if (ctx.role === 'agent' && input.clearDoNotCall) {
     throw new Error("Only the owner can clear a contact's do-not-call request: they asked not to be called again. Leave clearDoNotCall out to update the rest.");

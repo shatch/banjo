@@ -33,6 +33,7 @@ export async function addContact(input: {
   phoneNumber: string;
   category?: NewContact['category'];
   notes?: string;
+  pronunciation?: string;
   bookingUrl?: string;
   email?: string;
   googleResourceName?: string;
@@ -45,6 +46,7 @@ export async function addContact(input: {
       phoneNumber: toStoredPhoneNumber(input.phoneNumber),
       category: input.category ?? 'other',
       notes: input.notes,
+      pronunciation: input.pronunciation,
       bookingUrl: input.bookingUrl,
       email: input.email,
       googleResourceName: input.googleResourceName,
@@ -63,6 +65,7 @@ export async function updateContact(
       | 'preferredChannel'
       | 'bookingUrl'
       | 'notes'
+      | 'pronunciation'
       | 'displayName'
       | 'phoneNumber'
       | 'category'

@@ -1,6 +1,7 @@
 import type { Contact } from '../contacts/schema.js';
 import { config } from '../config/index.js';
 import { formatSpokenInZone } from '../lib/timezone.js';
+import { spokenNameRule } from '../contacts/pronunciation.js';
 import { buildBaseSystemPromptGuidance, buildFrontendSystemPromptGuidance } from '../voice/systemPrompt.js';
 import type { Task, TimeWindow } from './schema.js';
 import { modeRules } from './modes.js';
@@ -246,7 +247,7 @@ export function buildCallSystemPrompt(
   return `
 ${buildBaseSystemPromptGuidance('outbound', { purpose: ask ? 'ask' : 'book' })}
 
-You are calling ${contact.displayName} on behalf of ${config.ASSISTANT_PRINCIPAL_NAME} to: ${task.goalDescription}.
+You are calling ${contact.displayName} on behalf of ${config.ASSISTANT_PRINCIPAL_NAME} to: ${task.goalDescription}.${spokenNameRule(contact.displayName, contact.pronunciation)}
 
 Contact context: ${contact.notes ?? '(no notes on file)'}${taskDetails(task)}
 
@@ -307,7 +308,7 @@ export function buildCallFrontendPrompt(task: Task, contact: Contact, ownerProfi
   return `
 ${buildFrontendSystemPromptGuidance('outbound', { purpose: modeRules(task).asks ? 'ask' : 'book' })}
 
-You are calling ${contact.displayName} on behalf of ${config.ASSISTANT_PRINCIPAL_NAME} to: ${task.goalDescription}.
+You are calling ${contact.displayName} on behalf of ${config.ASSISTANT_PRINCIPAL_NAME} to: ${task.goalDescription}.${spokenNameRule(contact.displayName, contact.pronunciation)}
 
 Contact context: ${contact.notes ?? '(no notes on file)'}${taskDetails(task)}${conversationModeFrontendGuidance(task)}${askModeFrontendGuidance(task)}${ownerProfileSection(ownerProfile, contact)}
 `.trim();
