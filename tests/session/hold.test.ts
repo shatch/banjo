@@ -147,6 +147,10 @@ describe('voicemailOnHoldNote', () => {
     const note = voicemailOnHoldNote();
     expect(note).toContain('leave_voicemail_and_end_call');
     expect(note).toContain('person speaks');
+    // A live test (#238): told to let the greeting finish, Banjo announced it
+    // would leave a message, ahead of the disclosure the voicemail must open with.
+    expect(note).toContain('without saying anything first');
+    expect(note).not.toContain('Let it finish');
     expect(note).not.toMatch(/"[^"]+"/);
   });
 });
