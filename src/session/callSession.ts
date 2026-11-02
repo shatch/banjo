@@ -18,12 +18,22 @@ import { isCarrierPreamble, soundsLikeVoicemailGreeting } from './voicemailGreet
 
 export type CallSessionState = 'connecting' | 'active' | 'tool-pending' | 'ending' | 'ended' | 'error';
 
+/**
+ * Why a verbatimMessage wasn't verified as delivered (#244). Saved with the
+ * call, since a container's logs don't outlive it: `barge_in` means sound on
+ * the line, which on a voicemail may be only its beep or hiss; `call_ended`
+ * means the session was told the call was over, by either side.
+ */
+export type VerbatimFailure = 'barge_in' | 'they_answered' | 'call_ended' | 'call_failed' | 'time_ran_out' | 'said_something_else' | 'still_playing';
+
 /** A verbatimMessage being delivered (#71): see CallSession.deliverVerbatim. */
 interface VerbatimDelivery {
   /** Banjo's final transcript lines for the part being spoken. */
   spoken: string[];
   /** The callee may not have heard it all: a barge-in flushed queued audio, someone answered, or the call is ending. */
   cutOff: boolean;
+  /** What cut it off first: saved with the call when delivery fails (#244). */
+  cutOffBy?: VerbatimFailure;
   /** When the first part is estimated to have finished playing — from then on a user line is a reply, not the greeting finalizing late. */
   openerPlayedAt?: number;
   /** Ends whatever wait deliverVerbatim is in. */
@@ -176,7 +186,9 @@ export type CallSessionStatusPatch =
    */
   | { kind: 'ended'; reason: string; disclosure: DisclosureResult; stopped?: true; theirReplies?: number }
   | { kind: 'failed'; reason: string; disclosure: DisclosureResult }
-  | { kind: 'recording_started'; recordingId: string };
+  | { kind: 'recording_started'; recordingId: string }
+  /** A verbatimMessage wasn't verified as delivered, and why (#244). */
+  | { kind: 'verbatim_failed'; failure: VerbatimFailure };
 
 /**
  * Generic over the shape of context passed to this call's tool handlers
@@ -550,7 +562,7 @@ export class CallSession<TCtx = CallContext> {
           // greeting's own transcript can finalize after delivery has begun.
           if (event.role === 'user' && quality === 'ok' && this.voiceAI.emitsInterruptions === false) {
             const openerPlayedAt = this.verbatimDelivery?.openerPlayedAt;
-            if (openerPlayedAt !== undefined && Date.now() >= openerPlayedAt) this.cutOffVerbatimDelivery();
+            if (openerPlayedAt !== undefined && Date.now() >= openerPlayedAt) this.cutOffVerbatimDelivery('they_answered');
           }
           if (event.role === 'assistant' && this.firstAssistantLine === undefined) this.firstAssistantLine = event.text;
           this.lastSpeaker = event.role;
@@ -620,7 +632,7 @@ export class CallSession<TCtx = CallContext> {
           this.recordingState = 'cancelled';
           logger.warn({ callId: this.opts.callId }, 'barge-in before the recording notice had played — this call will not be recorded');
         }
-        this.cutOffVerbatimDelivery();
+        this.cutOffVerbatimDelivery('barge_in');
         // #133: they started talking while Banjo was ending the call. Their
         // transcript, if it arrives in time, replaces this.
         if (this.callEndingToolCallId !== null) this.calleeSpokeDuringEnd ??= '';
@@ -1468,10 +1480,18 @@ export class CallSession<TCtx = CallContext> {
         delivery.openerPlayedAt ??= this.audioPlaybackTracker.estimatedDoneAt();
       }
       const playedOut = reports.length === parts.length && !delivery.cutOff && (await this.waitForVerbatimPlayback(delivery));
+      const matched = playedOut && reports.every((r) => r.matched) && !delivery.cutOff;
+      if (!matched) {
+        const failure: VerbatimFailure =
+          delivery.cutOffBy ?? (Date.now() >= deadline ? 'time_ran_out' : reports.some((r) => !r.matched) ? 'said_something_else' : 'still_playing');
+        logger.warn({ callId: this.opts.callId, failure }, 'Verbatim delivery failed');
+        // A failed save must never affect the call.
+        void this.opts.onStatusChange({ kind: 'verbatim_failed', failure }).catch((err: unknown) => logger.warn({ err, callId: this.opts.callId }, 'could not save why a verbatim delivery failed'));
+      }
       return {
         intended: parts.join(' '),
         spoken: reports.map((r) => r.spoken).filter(Boolean).join(' '),
-        matched: playedOut && reports.every((r) => r.matched) && !delivery.cutOff,
+        matched,
       };
     } finally {
       this.verbatimDelivery = null;
@@ -1521,8 +1541,9 @@ export class CallSession<TCtx = CallContext> {
   }
 
   /** The callee may not hear the rest of a verbatim delivery: a barge-in flushed it, they answered, or the call is ending. */
-  private cutOffVerbatimDelivery(): void {
+  private cutOffVerbatimDelivery(by: VerbatimFailure): void {
     if (!this.verbatimDelivery) return;
+    this.verbatimDelivery.cutOffBy ??= by;
     this.verbatimDelivery.cutOff = true;
     this.verbatimDelivery.wake();
   }
@@ -1571,7 +1592,7 @@ export class CallSession<TCtx = CallContext> {
     this.clearQuietAfterQuestionTimer();
     this.stopHold();
     this.cancelPendingRecording();
-    this.cutOffVerbatimDelivery();
+    this.cutOffVerbatimDelivery('call_failed');
     logger.error({ err, reason, callId: this.opts.callId }, 'Call session error');
     this.setState('error');
     // Same reason as end(): a booking still being written must land before
@@ -1684,7 +1705,7 @@ export class CallSession<TCtx = CallContext> {
     this.stopHold();
     this.cancelPendingRecording();
     this.setState('ending');
-    this.cutOffVerbatimDelivery();
+    this.cutOffVerbatimDelivery('call_ended');
     await this.waitForInFlightToolHandlers();
     await this.opts.onStatusChange({
       kind: 'ended',

@@ -113,6 +113,10 @@ describe('buildOutboundCallSessionOptions', () => {
     });
     await options.onStatusChange({ kind: 'recording_started', recordingId: 'RE1' });
     expect(updateCallAttempt).toHaveBeenCalledWith('call-attempt-1', { recordingSid: 'RE1' });
+
+    // #244: why a voicemail went unverified outlives the container's logs.
+    await options.onStatusChange({ kind: 'verbatim_failed', failure: 'barge_in' });
+    expect(updateCallAttempt).toHaveBeenCalledWith('call-attempt-1', { errorDetail: 'verbatim_failed:barge_in' });
   });
 
   it('onTranscript saves the line against this call attempt (#6)', async () => {

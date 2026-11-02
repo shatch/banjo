@@ -78,6 +78,9 @@ export function buildInboundCallSessionOptions(params: {
         case 'answer_judged':
           // Outbound only (#187): the inbound adapter never sets judgeFirstLine.
           break;
+        case 'verbatim_failed':
+          // Inbound has no voicemail tool, and no attempt row to save this on.
+          break;
         case 'answering_machine_detected':
           // AMD is an outbound-only concept — Twilio's MachineDetection is
           // only ever requested on originateCall (see
