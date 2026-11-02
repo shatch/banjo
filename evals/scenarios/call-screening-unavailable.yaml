@@ -1,0 +1,26 @@
+id: call-screening-unavailable
+title: "A phone's call screening says to stay on the line, then that the person isn't available: leave a message"
+source: "#238: the screen can still end in voicemail"
+task:
+  business: Marisol
+  category: other
+  goal: Check in with Marisol about dog-sitting next weekend and ask whether she's free.
+  mode: conversation
+  relationshipTier: friend
+script:
+  - Hi, if you record your name and reason for calling, I'll see if this person is available.
+  - ~Thanks. Please stay on the line.
+  - (silence 8)
+  - ~Sorry, this person isn't available. Please leave a message after the tone. Beep.
+expect:
+  status: [voicemail_left]
+  answeredBy: [ivr]
+  toolsCalled:
+    - name: wait_on_hold
+    - name: leave_voicemail_and_end_call
+  reaches:
+    - userLineIncludes: Beep
+      beforeTool: leave_voicemail_and_end_call
+skipUniversal:
+  - check: disclosure_once
+    reason: The screen hears the disclosure, and the voicemail opens with it again.

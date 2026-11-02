@@ -404,6 +404,12 @@ describe('phone menu and hold guidance (#151)', () => {
     expect(buildBaseSystemPromptGuidance('inbound')).not.toContain('wait_on_hold');
   });
 
+  it('treats a phone\'s call screen as neither voicemail nor a person: answer once, then wait (#238)', () => {
+    const guidance = buildBaseSystemPromptGuidance('outbound');
+    expect(guidance).toMatch(/call-screening assistant[^\n]*is not voicemail/);
+    expect(guidance).toMatch(/call-screening assistant[^\n]*wait_on_hold, saying nothing/);
+  });
+
   // A live Xfinity call: Banjo went on hold at "...otherwise, please remain on
   // the line" and never answered the menu's spoken questions after that, and
   // spoke filler ("One moment") into a menu that listens for speech.

@@ -6,7 +6,7 @@ import type { CallContext } from '../../src/session/types.js';
 import type { TelephonyEvent, TelephonyProvider } from '../../src/telephony/providers/types.js';
 import type { HoldVerdict, VoiceAIEvent, VoiceAIProvider } from '../../src/voice/types.js';
 import { defineVoiceTool } from '../../src/voice/tools/defineVoiceTool.js';
-import { holdBudgetMs, isRepeatOnHold, menuPromptNote, personPickedUpNote } from '../../src/session/hold.js';
+import { holdBudgetMs, isRepeatOnHold, menuPromptNote, personPickedUpNote, voicemailOnHoldNote } from '../../src/session/hold.js';
 
 // Waiting on hold (#151), at the VoiceAIProvider/TelephonyProvider boundary,
 // like tests/session/callSession.test.ts, with a voice provider that can hold.
@@ -142,6 +142,15 @@ describe('menuPromptNote', () => {
   });
 });
 
+describe('voicemailOnHoldNote', () => {
+  it('steers to the voicemail tool, leaves room for a person, and is fixed text', () => {
+    const note = voicemailOnHoldNote();
+    expect(note).toContain('leave_voicemail_and_end_call');
+    expect(note).toContain('person speaks');
+    expect(note).not.toMatch(/"[^"]+"/);
+  });
+});
+
 describe('CallSession on hold (#151)', () => {
   it('goes on hold silently: no reply to the tool result, and the owner is told the limit', async () => {
     const { options } = await onHold();
@@ -217,6 +226,22 @@ describe('CallSession on hold (#151)', () => {
     // Off hold, lines go to the model as usual, not to the judge.
     heard('Say yes or no.');
     expect(fakeVoiceAI.judgeHoldLine).toHaveBeenCalledTimes(1);
+  });
+
+  // #238: a screen's "stay on the line" ended in "leave a message", and Banjo sat silent through it.
+  it('a voicemail greeting on hold: off hold, and Banjo is handed the turn to leave its message, with no owner message', async () => {
+    const { options } = await onHold();
+    fakeVoiceAI.judgeHoldLine.mockImplementationOnce(async () => 'voicemail');
+    heard("Sorry, this person isn't available. Please leave a message after the tone.");
+
+    await vi.waitFor(() => expect(fakeVoiceAI.setHold).toHaveBeenCalledWith(false));
+    expect(fakeVoiceAI.addContext).toHaveBeenCalledWith([
+      { role: 'system', text: voicemailOnHoldNote() },
+      { role: 'user', text: "Sorry, this person isn't available. Please leave a message after the tone." },
+    ]);
+    expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(1);
+    expect(options.onHoldChange).toHaveBeenCalledWith({ kind: 'voicemail' });
+    expect(options.onHoldChange).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'person' }));
   });
 
   it('after a menu hands the turn back, Banjo can wait on hold again', async () => {

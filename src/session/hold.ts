@@ -66,6 +66,20 @@ export function menuPromptNote(): string {
 }
 
 /**
+ * The system note added when a voicemail greeting plays while Banjo is on hold
+ * (#238), just before the greeting's own words go in as a user line. A phone's
+ * call screen said to stay on the line, then to leave a message, and Banjo sat
+ * silent through it. Fixed text that quotes nothing, like menuPromptNote.
+ */
+export function voicemailOnHoldNote(): string {
+  return (
+    'You were waiting silently, and the line has reached a voicemail greeting; its words follow. Let it finish, then ' +
+    'leave your message with leave_voicemail_and_end_call, so it is delivered exactly. If a person speaks after all, ' +
+    'talk with them as normal.'
+  );
+}
+
+/**
  * The longest this hold may last: the call's own limit, cut short so the
  * voice session still has `reserveMs` left to talk in once a person picks up.
  * Zero or less means there isn't time to wait at all.

@@ -251,9 +251,9 @@ export function buildOutboundCallSessionOptions(params: {
     // #151: the owner hears when a hold starts and when someone picks up. A
     // hold that runs out ends the call, and its outcome says so. A phone menu
     // can take Banjo off hold and back on at each step: that's one hold to the
-    // owner, until someone picks up.
+    // owner, until someone picks up. A voicemail ends the call, and its outcome says so.
     async onHoldChange(change) {
-      if (change.kind === 'menu') return;
+      if (change.kind === 'menu' || change.kind === 'voicemail') return;
       if (change.kind === 'started') {
         if (toldOwnerOnHold) return;
         toldOwnerOnHold = true;

@@ -226,7 +226,7 @@ export interface VoiceAIProvider {
 }
 
 /** What a line heard on hold is (VoiceAIProvider.judgeHoldLine, #151). */
-export type HoldVerdict = 'person' | 'menu' | 'recording';
+export type HoldVerdict = 'person' | 'menu' | 'voicemail' | 'recording';
 
 /** Who answered an outbound call (VoiceAIProvider.judgeFirstLine, #187). */
 export type AnswerVerdict = 'human' | 'voicemail' | 'ivr' | 'uncertain';
