@@ -654,7 +654,9 @@ On OpenAI, `setHold(true)` resends `audio.input` with `turn_detection: { type: '
   response;
 - tagged in `metadata`, so the adapter keeps its text and `response.done` from looking like Banjo speaking.
 
-It returns one word: PERSON or RECORDING. Judgments run one at a time, and only the latest line that arrived meanwhile is judged next. A failed or late judgment (8s) counts as a person: a person left in silence hangs up, while Banjo woken by a recording can go back on hold.
+It returns one word: PERSON, MENU, VOICEMAIL or RECORDING. Judgments run one at a time, and only the latest line that arrived meanwhile is judged next. A failed or late judgment (8s) counts as a person: a person left in silence hangs up, while Banjo woken by a recording can go back on hold.
+
+**A phone's call screen (#238).** iPhone Call Screening and Pixel Call Screen ask why you're calling, then say to stay on the line. A live call took that for voicemail, left a message with the screen and hung up, losing a person who may have been about to answer. The first-line judge had a part in it: it read the screen as VOICEMAIL in 3 of 3 eval runs, which adds a note telling Banjo to leave its message. It's now judged IVR, which is only recorded, and a prompt rule says to answer the screen once and then use `wait_on_hold`. If the screen then plays a voicemail greeting, the hold judge returns VOICEMAIL and Banjo is handed the turn with a fixed note (`voicemailOnHoldNote`) to leave its message; before this, the greeting was judged a recording and Banjo stayed silent through it. Eval scenarios: `call-screening`, `call-screening-pixel`, `call-screening-unavailable`. The text evals can't confirm the original failure's cause on audio, so it needs a live call to an iPhone with screening on.
 
 **A person picks up.** `setHold(false)` runs and the owner gets a message. Then `VoiceAIProvider.addContext()` adds two conversation items:
 - a fixed system note (`personPickedUpNote`): open again with the AI disclosure, since they heard nothing from before the hold;

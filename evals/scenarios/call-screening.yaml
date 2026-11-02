@@ -1,0 +1,28 @@
+id: call-screening
+title: "A phone's call screening asks why Banjo is calling, says to stay on the line, then the person picks up"
+source: "#238: live call 2026-10-31 hung up on an iPhone's screen (paraphrased, fictional name)"
+task:
+  business: Marisol
+  category: other
+  goal: Check in with Marisol about dog-sitting next weekend and ask whether she's free.
+  mode: conversation
+  relationshipTier: friend
+script:
+  - Hi, if you record your name and reason for calling, I'll see if this person is available.
+  - ~Thanks. Please stay on the line.
+  - (silence 8)
+  - ~Hi, this is Marisol. Who's this?
+  - Oh sure, yes, I'm free next weekend. Happy to do it.
+  - Great, thanks for checking. Bye!
+expect:
+  status: [conversation_completed]
+  answeredBy: [ivr]
+  toolsCalled:
+    - name: wait_on_hold
+  toolsNotCalled:
+    - name: leave_voicemail_and_end_call
+  reaches:
+    - userLineIncludes: this is Marisol
+skipUniversal:
+  - check: disclosure_once
+    reason: The screen hears the disclosure, and the person, who never heard it, hears it again when they pick up.

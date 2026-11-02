@@ -12,7 +12,7 @@ import type { CallContext } from './types.js';
 import { ANSWER_CHECK_MAX_LINES, answerNote } from './answerCheck.js';
 import { checkDisclosure, type DisclosureResult } from './disclosure.js';
 import { isCuttingIn, isSigningOff, saidGoodbye } from './goodbye.js';
-import { holdBudgetMs, isRepeatOnHold, menuPromptNote, personPickedUpNote } from './hold.js';
+import { holdBudgetMs, isRepeatOnHold, menuPromptNote, voicemailOnHoldNote, personPickedUpNote } from './hold.js';
 import { classifyTranscript } from './transcriptQuality.js';
 import { isCarrierPreamble, soundsLikeVoicemailGreeting } from './voicemailGreeting.js';
 
@@ -247,7 +247,7 @@ export interface CallSessionOptions<TCtx = CallContext> {
   /** How long this call may wait on hold (#151). Defaults to HOLD_MAX_MINUTES; always cut short to fit the voice session. */
   maxHoldMs?: number;
   /** A hold started (with how long it may last) or ended because a person picked up (#151). Must not throw into the call. */
-  onHoldChange?(change: { kind: 'started'; maxMs: number } | { kind: 'person'; waitedMs: number } | { kind: 'menu' }): Promise<void>;
+  onHoldChange?(change: { kind: 'started'; maxMs: number } | { kind: 'person'; waitedMs: number } | { kind: 'menu' } | { kind: 'voicemail' }): Promise<void>;
   /** The hold ran out with no person (#151): record it. The call then ends. */
   onHoldLimit?(waitedMs: number): Promise<void>;
 }
@@ -1242,6 +1242,10 @@ export class CallSession<TCtx = CallContext> {
       this.menuAskedOnHold(line);
       return;
     }
+    if (verdict === 'voicemail') {
+      this.voicemailOnHold(line);
+      return;
+    }
     const next = hold.nextLine;
     hold.nextLine = undefined;
     if (next !== undefined) this.considerHoldLine(next);
@@ -1277,6 +1281,19 @@ export class CallSession<TCtx = CallContext> {
     this.voiceAI.addContext!([
       ...this.takeHeldOwnerNotes(),
       { role: 'system', text: menuPromptNote() },
+      { role: 'user', text: line },
+    ]);
+    this.triggerVoiceAIResponse();
+  }
+
+  /** A voicemail greeting played on hold (#238): off hold, and Banjo leaves its message. Like a menu, its words go in as a user line after a fixed note. */
+  private voicemailOnHold(line: string): void {
+    if (!this.stopHold()) return;
+    logger.info({ callId: this.opts.callId }, 'a voicemail greeting played on hold');
+    void this.opts.onHoldChange?.({ kind: 'voicemail' }).catch((err: unknown) => logger.warn({ err, callId: this.opts.callId }, 'onHoldChange failed'));
+    this.voiceAI.addContext!([
+      ...this.takeHeldOwnerNotes(),
+      { role: 'system', text: voicemailOnHoldNote() },
       { role: 'user', text: line },
     ]);
     this.triggerVoiceAIResponse();

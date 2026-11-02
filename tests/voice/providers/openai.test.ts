@@ -476,7 +476,7 @@ describe('OpenAIRealtimeProvider: waiting on hold (#151)', () => {
       tool_choice: 'none',
       metadata: { banjo_hold_check: expect.any(String) },
     });
-    expect(request.response.instructions).toContain('PERSON, MENU or RECORDING');
+    expect(request.response.instructions).toContain('PERSON, MENU, VOICEMAIL or RECORDING');
     const input = request.response.input[0].content[0].text as string;
     expect(input).toContain('"This is Dana, how can I help?"');
     expect(input).toContain('"Please hold."');
@@ -504,6 +504,9 @@ describe('OpenAIRealtimeProvider: waiting on hold (#151)', () => {
     const menu = provider.judgeHoldLine("I found an account at street number 42. Is this the account you're calling about?", []);
     answer('MENU');
     await expect(menu).resolves.toBe('menu');
+    const voicemail = provider.judgeHoldLine("Sorry, this person isn't available. Please leave a message after the tone.", []);
+    answer('VOICEMAIL');
+    await expect(voicemail).resolves.toBe('voicemail');
     // A person outranks the rest: an answer naming both is a person.
     const both = provider.judgeHoldLine('Hi, this is Dana. Press 1 if you want to keep holding.', []);
     answer('PERSON or MENU');
@@ -528,6 +531,8 @@ describe('OpenAIRealtimeProvider: waiting on hold (#151)', () => {
     const [request] = sent(ws);
     expect(request.response).toMatchObject({ conversation: 'none', output_modalities: ['text'], tools: [], tool_choice: 'none' });
     expect(request.response.instructions).toContain('HUMAN, VOICEMAIL, IVR or UNCERTAIN');
+    // #238: read as a voicemail, a phone's call screen got Banjo a note telling it to leave a message.
+    expect(request.response.instructions).toMatch(/IVR:[^.]*call-screening assistant/);
     const input = request.response.input[0].content[0].text as string;
     expect(input).toContain('"Please leave a message after the tone."');
     expect(input).toContain('"You have reached Dana."');
