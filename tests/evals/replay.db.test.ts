@@ -21,6 +21,17 @@ async function clearTables() {
   await db.execute(sql`truncate owner_questions, call_transcript_turns, call_attempts, tasks, contacts restart identity cascade`);
 }
 
+/**
+ * Closes this module instance's Postgres pool, then resets modules. vi.resetModules
+ * alone leaves the old pool open, and a pool per recording ran CI's Postgres out
+ * of connections ("too many clients already") once there were 17 recordings.
+ */
+async function resetModulesAndCloseDb() {
+  const { db } = await import('../../src/db/index.js');
+  await db.$client.end({ timeout: 5 });
+  vi.resetModules();
+}
+
 beforeEach(async () => {
   process.env.DATABASE_URL = TEST_DB;
   await clearTables();
@@ -174,7 +185,7 @@ describe('recorded scenarios', async () => {
       continue;
     }
     it(`${scenario.id} replays, and its checks pass`, async (ctx) => {
-      vi.resetModules();
+      await resetModulesAndCloseDb();
       const { evalEnv } = await import('../../src/evals/env.js');
       for (const [key, value] of Object.entries(evalEnv({ OPENAI_API_KEY: 'sk-test' }, { ...scenario.flags, env: scenario.env }))) vi.stubEnv(key, value);
       vi.stubEnv('DATABASE_URL', TEST_DB);
@@ -190,6 +201,7 @@ describe('recorded scenarios', async () => {
         expect(checks.filter((c) => !c.pass)).toEqual([]);
       } finally {
         vi.unstubAllEnvs();
+        await resetModulesAndCloseDb();
       }
     }, 120_000);
   }
