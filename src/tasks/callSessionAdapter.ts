@@ -319,6 +319,10 @@ export function buildOutboundCallSessionOptions(params: {
         case 'recording_started':
           await updateCallAttempt(callAttempt.id, { recordingSid: patch.recordingId });
           break;
+        case 'verbatim_failed':
+          // #244: why a voicemail went unverified, kept past the container's logs.
+          await updateCallAttempt(callAttempt.id, { errorDetail: `verbatim_failed:${patch.failure}` });
+          break;
         case 'ended':
           // The call is genuinely over here — not when start() returned. See
           // the registerLiveCall comment in orchestrator.ts.

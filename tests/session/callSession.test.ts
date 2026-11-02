@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { CalendarProvider } from '../../src/calendar/types.js';
-import type { CallSessionOptions } from '../../src/session/callSession.js';
+import type { CallSessionOptions, CallSessionStatusPatch } from '../../src/session/callSession.js';
 import type { CallContext } from '../../src/session/types.js';
 import type { CallAttempt } from '../../src/tasks/schema.js';
 import type { TelephonyEvent, TelephonyProvider } from '../../src/telephony/providers/types.js';
@@ -703,6 +703,77 @@ describe('CallSession: audio-aware hang-up wiring', () => {
       } finally {
         vi.mocked(fakeVoiceAI.sayVerbatim).mockReset();
       }
+    });
+
+    // #244: a live voicemail ended cut off, and with the container's logs gone nothing said why.
+    describe('saves why a delivery failed', () => {
+      const failures = (options: { onStatusChange: unknown }) =>
+        vi.mocked(options.onStatusChange as (p: CallSessionStatusPatch) => Promise<void>).mock.calls.map(([p]) => p).filter((p) => p.kind === 'verbatim_failed');
+
+      async function deliver(sayVerbatim: () => void) {
+        vi.mocked(fakeVoiceAI.sayVerbatim).mockImplementation(sayVerbatim);
+        const session = await voicemailSession();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const done = (session as any).handleToolCall('call-1', 'leave_voicemail_and_end_call', { message: 'Please call Alex back.' });
+        voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent); // the endsCall wait
+        return { session, done };
+      }
+
+      afterEach(() => {
+        vi.mocked(fakeVoiceAI.sayVerbatim).mockReset();
+      });
+
+      it('barge_in: a barge-in stopped it', async () => {
+        const { session, done } = await deliver(() => {
+          setTimeout(() => voiceAIEmitter.emit('event', { type: 'interrupted' } satisfies VoiceAIEvent), 0);
+        });
+        await done;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect(failures((session as any).opts)).toEqual([{ kind: 'verbatim_failed', failure: 'barge_in' }]);
+      });
+
+      it('said_something_else: the turn ended with other words', async () => {
+        const { session, done } = await deliver(() => {
+          setTimeout(() => {
+            voiceAIEmitter.emit('event', { type: 'transcript', role: 'assistant', text: "I can't deliver that.", isFinal: true } satisfies VoiceAIEvent);
+            voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+          }, 0);
+        });
+        await done;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect(failures((session as any).opts)).toEqual([{ kind: 'verbatim_failed', failure: 'said_something_else' }]);
+      });
+
+      it('call_ended: the call ended while it was being said', async () => {
+        const { session, done } = await deliver(() => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          setTimeout(() => void (session as any).end('stop'), 0);
+        });
+        await done;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect(failures((session as any).opts)).toEqual([{ kind: 'verbatim_failed', failure: 'call_ended' }]);
+      });
+
+      it('time_ran_out: the turn never ended', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        const { session, done } = await deliver(() => {});
+        await vi.advanceTimersByTimeAsync(40_000);
+        await done;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect(failures((session as any).opts)).toEqual([{ kind: 'verbatim_failed', failure: 'time_ran_out' }]);
+      });
+
+      it('nothing is saved when it was delivered', async () => {
+        const { session, done } = await deliver(() => {
+          setTimeout(() => {
+            voiceAIEmitter.emit('event', { type: 'transcript', role: 'assistant', text: 'Please call Alex back.', isFinal: true } satisfies VoiceAIEvent);
+            voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+          }, 0);
+        });
+        await done;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect(failures((session as any).opts)).toEqual([]);
+      });
     });
 
     it('waits while they are still speaking, but no more than 15s in all', async () => {
