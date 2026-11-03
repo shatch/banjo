@@ -103,6 +103,11 @@ const scenarioSchema = z
         traceableNumbers: z.boolean().optional(),
         /** The verdicts the first-line judge may end on (#187): grades the judge as well as the call. */
         answeredBy: z.array(z.enum(['human', 'voicemail', 'ivr', 'uncertain'])).min(1).optional(),
+        /**
+         * Question numbers (from 1) nobody answered on the call: they must end up unanswered, whichever tool would have
+         * saved an answer (#251). So a closing report can't pass with an answer the call never gave.
+         */
+        unansweredQuestions: z.array(z.number().int().positive()).min(1).optional(),
         neverSays: z.array(z.string().min(1)).optional(),
         goodbyeWithinTurnsAfter: z.object({ userLineIncludes: z.string().min(1), turns: z.number().int().positive() }).strict().optional(),
         /**

@@ -18,4 +18,6 @@ expect:
   answeredBy: [human, uncertain]
   toolsCalled:
     - name: report_answers_and_end_call
+  # They left before the groom's price came up.
+  unansweredQuestions: [2]
   traceableNumbers: true

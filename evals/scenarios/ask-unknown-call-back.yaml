@@ -23,9 +23,8 @@ expect:
     - name: report_answers_and_end_call
   toolsNotCalled:
     - name: confirm_appointment
-    # "Yep, that's right." confirms the read-back; it isn't a yes to walk-ins.
-    - name: record_answer
-      argsInclude: { question: 2, answered: true }
+  # "Yep, that's right." confirms the read-back; it isn't a yes to walk-ins.
+  unansweredQuestions: [2]
   traceableNumbers: true
   # Item 1: no reason nobody gave. Item 6: no promise to call back.
   neverSays: ["before booking", "possible grooming", "I'll call back", "I will call back", "we'll call back"]
