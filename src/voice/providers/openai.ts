@@ -87,6 +87,11 @@ interface OpenAIAudioFormat {
   rate?: 24000;
 }
 
+/** Whether a spoken line ends by asking them something, which leaves the turn with them (#251). */
+function endsWithQuestion(line: string): boolean {
+  return /\?[\s"'”’)]*$/.test(line);
+}
+
 /**
  * Maps our vendor-agnostic audio format enum to OpenAI's GA audio format
  * object. CONFIRMED against openai-node's `RealtimeAudioFormats` types
@@ -235,6 +240,8 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
   private callResponseIds = new Map<string, string>();
   private openResponseIds = new Set<string>();
   private spokenResponseIds = new Set<string>();
+  /** What each spoken response said, or nothing if it isn't known or they cut it off (#251). */
+  private responseLines = new Map<string, string>();
   private afterResponseDone = new Map<string, (() => void)[]>();
   /**
    * A tool result is waiting for a reply that can't be prompted yet: another
@@ -425,7 +432,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
     this.ws.send(JSON.stringify({ type: 'response.create' }));
   }
 
-  sendToolResult(toolCallId: string, result: unknown, isError?: boolean, options?: { respond?: boolean | 'if-silent' }): void {
+  sendToolResult(toolCallId: string, result: unknown, isError?: boolean, options?: { respond?: boolean | 'if-silent' | 'unless-asked' }): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const output = isError ? { error: true, ...safeResultObject(result) } : result;
     this.ws.send(
@@ -441,6 +448,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
     // Prompt the model to continue now that it has the tool result, unless the
     // caller wants it to wait for the other party (server VAD responds then).
     if (options?.respond === 'if-silent') return this.respondIfSilent(toolCallId);
+    if (options?.respond === 'unless-asked') return this.respondIfSilent(toolCallId, true);
     if (options?.respond !== false) this.promptToolReply();
   }
 
@@ -469,12 +477,24 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
    * tool said nothing, deciding once that response is done. A response still
    * open can't take another response.create, and one that spoke (usually the
    * next question, alongside record_answer) needs no second turn (#148 review r2).
+   *
+   * With `unlessAsked`, only a line that asked them something counts as speaking.
+   * A live call said "Sure, just a second." alongside note_follow_up, then sat
+   * silent for 19s until the other party said "Hello?", the audio having cleared
+   * the silence watchdog (#251). record_answer can't use this: its read-back ("You
+   * close at 4, got it.") waits for them without asking, and a prompt there asked
+   * the next question, so their "Yep" was saved as its answer. Speech with no
+   * transcript, or that they cut off, gets no reply either way: the first can't
+   * be judged, and in the second it's their turn.
    */
-  private respondIfSilent(toolCallId: string): void {
+  private respondIfSilent(toolCallId: string, unlessAsked = false): void {
     const responseId = this.callResponseIds.get(toolCallId);
     this.callResponseIds.delete(toolCallId);
     const decide = () => {
-      if (responseId !== undefined && this.spokenResponseIds.has(responseId)) return;
+      if (responseId !== undefined && this.spokenResponseIds.has(responseId)) {
+        const line = this.responseLines.get(responseId);
+        if (!unlessAsked || line === undefined || endsWithQuestion(line)) return;
+      }
       this.promptToolReply();
     };
     if (responseId !== undefined && this.openResponseIds.has(responseId)) {
@@ -482,6 +502,13 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
     } else {
       decide();
     }
+  }
+
+  /** A finished transcript replaces its deltas. In a response with several parts, the last is what the turn ends on. */
+  private recordResponseLine(responseId: unknown, line: string): void {
+    if (typeof responseId !== 'string' || !line.trim()) return;
+    this.spokenResponseIds.add(responseId);
+    this.responseLines.set(responseId, line);
   }
 
   interrupt(): void {
@@ -706,7 +733,10 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
       case 'response.output_text.delta': {
         if (this.outOfBandResponseIds.has(msg.response_id)) return;
         if (typeof msg.delta === 'string') {
-          if (msg.delta.trim() && typeof msg.response_id === 'string') this.spokenResponseIds.add(msg.response_id);
+          if (msg.delta.trim() && typeof msg.response_id === 'string') {
+            this.spokenResponseIds.add(msg.response_id);
+            this.responseLines.set(msg.response_id, (this.responseLines.get(msg.response_id) ?? '') + msg.delta);
+          }
           this.emitEvent({ type: 'transcript', role: 'assistant', text: msg.delta, isFinal: false });
         }
         return;
@@ -716,6 +746,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
       case 'response.output_audio_transcript.done': {
         if (typeof msg.transcript === 'string') {
           this.recordVerbatimSpeech(msg.response_id, msg.transcript);
+          this.recordResponseLine(msg.response_id, msg.transcript);
           this.emitEvent({ type: 'transcript', role: 'assistant', text: msg.transcript, isFinal: true });
         }
         return;
@@ -726,6 +757,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
         if (this.outOfBandResponseIds.has(msg.response_id)) return;
         if (typeof msg.text === 'string') {
           this.recordVerbatimSpeech(msg.response_id, msg.text);
+          this.recordResponseLine(msg.response_id, msg.text);
           this.emitEvent({ type: 'transcript', role: 'assistant', text: msg.text, isFinal: true });
         }
         return;
@@ -815,6 +847,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
         this.emitEvent(isVerbatim ? { type: 'turn_end', verbatim: true } : { type: 'turn_end' });
         if (responseId) {
           this.openResponseIds.delete(responseId);
+          if (msg.response.status === 'cancelled') this.responseLines.delete(responseId);
           const waiting = this.afterResponseDone.get(responseId) ?? [];
           this.afterResponseDone.delete(responseId);
           for (const decide of waiting) decide();
@@ -824,6 +857,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
           for (const old of this.spokenResponseIds) {
             if (this.spokenResponseIds.size <= 50) break;
             this.spokenResponseIds.delete(old);
+            this.responseLines.delete(old);
           }
         }
         return;

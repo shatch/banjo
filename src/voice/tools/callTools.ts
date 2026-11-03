@@ -656,7 +656,7 @@ export const recordDoNotCallTool: VoiceTool<Record<string, never>> = defineVoice
     `It records their request, so no later call reaches them without ${config.ASSISTANT_PRINCIPAL_NAME}'s say-so. ` +
     "Don't use it for a request to call back later, or for a busy moment. This does not end the call.",
   schema: z.object({}).strict(),
-  replyOnlyIfSilent: true,
+  replyUnlessAsked: true,
   handler: async (_input, ctx) => {
     return runToolSafely('record_do_not_call', async () => {
       if (!(await markDoNotCall(ctx.task.contactId))) {
@@ -696,7 +696,7 @@ export const noteFollowUpTool: VoiceTool<{ request: string }> = defineVoiceTool(
         `What they asked for, in one short plain sentence, with any details they gave (dates, names). ${ONLY_WHAT_HAPPENED}`,
       ),
   }),
-  replyOnlyIfSilent: true,
+  replyUnlessAsked: true,
   handler: async (input, ctx) => {
     return runToolSafely('note_follow_up', async () => {
       const request = input.request.trim();

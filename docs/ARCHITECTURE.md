@@ -634,6 +634,14 @@ the owner's summary (`withFollowUps()`, fitted to `OWNER_SUMMARY_MAX_CHARS`, fal
 count), and the webhook as data (`followUps`), with only a count in its `text`. They're
 model-written, so data everywhere, like the outcome's free text. Eval scenario `asks-for-lookup`.
 
+A filler line said alongside the tool ("Sure, just a second") used to be all the other party heard: a
+tool with `replyOnlyIfSilent` gets no reply once its response has spoken, and the filler's audio also
+clears the silence watchdog (#251). So `note_follow_up` and `record_do_not_call` set `replyUnlessAsked`:
+the model is prompted to go on unless its line ended in a question, was cut off, or has no transcript.
+`record_answer` keeps `replyOnlyIfSilent`: its read-back ("You close at 4, got it.") waits for their
+confirmation without asking anything, and a prompted reply there asked the next question early, so a
+"Yep" was reported as the answer to it. A filler before `record_answer` can still leave a gap.
+
 ## Waiting on hold (`wait_on_hold`, #151)
 
 Outbound calls on OpenAI Realtime can wait in a hold queue. Other providers aren't offered the tool or the prompt section; see `canWaitOnHold()`.

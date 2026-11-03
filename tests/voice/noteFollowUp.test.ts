@@ -39,7 +39,7 @@ describe('note_follow_up (#160)', () => {
     expect(noteFollowUpTool.requiresGoodbye).toBeFalsy();
     expect(noteFollowUpTool.startsHold).toBeFalsy();
     expect(noteFollowUpTool.verbatimMessage).toBeUndefined();
-    expect(noteFollowUpTool.replyOnlyIfSilent).toBe(true);
+    expect(noteFollowUpTool.replyUnlessAsked).toBe(true);
   });
 
   it('saves the request straight away, trimmed, without touching the task status', async () => {
