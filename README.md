@@ -145,7 +145,7 @@ regenerated from them, so it shows what Banjo does today.
 
 > **Groomer:** Claudia's, this is Dana.
 >
-> **Banjo:** Hi, I'm an AI assistant calling on behalf of Alex. I have a quick question or two for Alex. What time do you close on Saturdays?
+> **Banjo:** Hi, I'm an AI assistant calling on behalf of Alex. I have a quick question or two for them. First, what time do you close on Saturdays?
 >
 > **Groomer:** We close at 4 on Saturdays.
 >
@@ -159,7 +159,15 @@ regenerated from them, so it shows what Banjo does today.
 >
 > **Groomer:** Walk-ins, hmm. I'm not sure, I'd have to check with the owner.
 >
-> **Banjo:** Understood, you're not sure about walk-ins. Thanks for letting me know. Thanks so much for your help—take care!
+> **Banjo:** Understood. Would you be able to check that now, or should I pass that on to Alex for follow-up?
+>
+> **Groomer:** No, nobody else here would know. I think that's unknown for now. You wanna call back?
+>
+> **Banjo:** I'll pass that on to Alex. Thanks so much for your help! Have a great day.
+>
+> ▸ `record_answer`: question 2 unanswered
+>
+> **Groomer:** Okay, sounds good. Bye!
 >
 > ▸ `report_answers_and_end_call`
 
@@ -177,23 +185,23 @@ What `get_task_status` returns:
 
 > **Marisol:** Hello?
 >
-> **Banjo:** Hi, I'm an AI assistant calling on behalf of Alex. Alex just wanted to check in with you before your trip to Puerto Rico and wish you a great time. How’s everything going?
+> **Banjo:** Hi, I'm an AI assistant calling on behalf of Alex. Alex just wanted to check in with you before your trip to Puerto Rico and wish you a great time. How are things going as you get ready?
 >
 > **Marisol:** Oh hi! Yes, I leave on Thursday, I'm so excited.
 >
-> **Banjo:** That’s wonderful—sounds like an amazing trip! Are you all set with your plans?
+> **Banjo:** That’s fantastic! Is everything all set for your trip?
 >
 > **Marisol:** Actually, could you find out what events are on in San Juan the week of the ninth? Concerts, festivals, that kind of thing.
 >
-> ▸ `note_follow_up`: "Find out what events are on in San Juan the week of November 9—concerts, festivals, or similar."
+> ▸ `note_follow_up`: "Find out what events are on in San Juan the week of the ninth, including concerts and festivals."
 >
-> **Banjo:** I’ll pass that along to Alex. Anything else on your mind before your trip?
+> **Banjo:** I’ll pass that along to Alex. Is there anything else you’re wondering about your trip?
 >
 > **Marisol:** Perfect, thank you. Okay, I have to go finish packing. Bye!
 >
-> ▸ `end_conversation_call`
+> **Banjo:** Thanks so much—have a wonderful trip! Take care!
 >
-> **Banjo:** Okay, take care. Bye!
+> ▸ `end_conversation_call`
 
 </details>
 

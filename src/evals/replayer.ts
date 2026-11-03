@@ -109,7 +109,7 @@ export class ReplayVoiceAI implements TextVoiceAIProvider {
     this.match({ call: 'connect', config: { instructions: config.instructions, tools: config.tools } });
   }
 
-  sendToolResult(toolCallId: string, result: unknown, isError?: boolean, options?: { respond?: boolean | 'if-silent' }): void {
+  sendToolResult(toolCallId: string, result: unknown, isError?: boolean, options?: { respond?: boolean | 'if-silent' | 'unless-asked' }): void {
     this.match({
       call: 'sendToolResult',
       toolCallId,

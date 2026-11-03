@@ -91,6 +91,15 @@ function outcomeText(record: RunRecord): string[] {
   return texts;
 }
 
+/** The answer the task ended with for a question number, from the final report or what was saved mid-call. */
+function answerTo(record: RunRecord, question: number): string | undefined {
+  const reported = ((record.outcome ?? {}) as { answers?: unknown }).answers;
+  const entry = Array.isArray(reported) ? (reported[question - 1] as { answered?: unknown; answer?: unknown } | undefined) : undefined;
+  if (entry?.answered && typeof entry.answer === 'string') return entry.answer;
+  const saved = record.collectedAnswers?.[String(question)];
+  return saved?.answered ? saved.answer : undefined;
+}
+
 export function runChecks(record: RunRecord, scenario: Scenario): CheckResult[] {
   const skipped = new Set(scenario.skipUniversal?.map((s) => s.check));
   const results = UNIVERSAL_CHECKS.filter((c) => !skipped.has(c)).map((c) => universal(record, c));
@@ -124,6 +133,13 @@ export function runChecks(record: RunRecord, scenario: Scenario): CheckResult[] 
     const said = new Set(record.lines.flatMap((l) => numbers(l.text)));
     const invented = [...new Set(outcomeText(record).flatMap(numbers))].filter((n) => !said.has(n));
     results.push(invented.length ? fail('traceable_numbers', `not said on the call: ${invented.join(', ')}`) : pass('traceable_numbers'));
+  }
+  if (e.unansweredQuestions) {
+    const invented = e.unansweredQuestions.flatMap((q) => {
+      const answer = answerTo(record, q);
+      return answer === undefined ? [] : [`question ${q}: ${JSON.stringify(answer)}`];
+    });
+    results.push(invented.length ? fail('unanswered_questions', `answered with ${invented.join(', ')}`) : pass('unanswered_questions'));
   }
   if (e.neverSays) {
     const leaked = e.neverSays.filter((s) => record.lines.some((l) => l.role === 'assistant' && l.text.toLowerCase().includes(s.toLowerCase())));

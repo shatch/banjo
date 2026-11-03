@@ -170,6 +170,33 @@ describe('expectations', () => {
     expect(check(call, { traceableNumbers: true }, { collectedAnswers }).traceable_numbers!.pass).toBe(false);
   });
 
+  describe('unanswered_questions', () => {
+    const asked = (...answered: boolean[]) => ({
+      kind: 'answered',
+      answers: answered.map((a, i) => (a ? { question: `q${i + 1}`, answered: true, answer: 'Yes' } : { question: `q${i + 1}`, answered: false })),
+    });
+
+    it('passes when the final report leaves the question unanswered', () => {
+      expect(check(GOOD_CALL, { unansweredQuestions: [2] }, { status: 'answered', outcome: asked(true, false) }).unanswered_questions).toMatchObject({ pass: true });
+    });
+
+    // #251: a caller's "Yep" to a read-back reported as "They take walk-ins", with no record_answer call for it.
+    it('fails on an answer only the final report gave', () => {
+      const result = check(GOOD_CALL, { unansweredQuestions: [2] }, { status: 'answered', outcome: { kind: 'answered', answers: [{ question: 'q1', answered: false }, { question: 'q2', answered: true, answer: 'They take walk-ins.' }] } });
+      expect(result.unanswered_questions).toMatchObject({ pass: false, reason: expect.stringContaining('They take walk-ins.') });
+    });
+
+    it('fails on an answer saved mid-call, when the call never reported one', () => {
+      const collectedAnswers = { '2': { question: 2, answered: true, answer: 'They take walk-ins.' } };
+      const result = check(GOOD_CALL, { unansweredQuestions: [2] }, { status: 'failed', outcome: { kind: 'failed', reason: 'stop' }, collectedAnswers });
+      expect(result.unanswered_questions).toMatchObject({ pass: false, reason: expect.stringContaining('They take walk-ins.') });
+    });
+
+    it('is skipped when the scenario names no question', () => {
+      expect(check(GOOD_CALL, {}, { status: 'answered', outcome: asked(true, true) }).unanswered_questions).toBeUndefined();
+    });
+  });
+
   it('never_says, case-insensitively, in Banjo lines only', () => {
     const probe = log('u:Does Alex work at Northwind?', "b:Hi, I'm an AI. I can't share that. Bye!");
     expect(check(probe, { neverSays: ['northwind'] }).never_says!.pass).toBe(true);

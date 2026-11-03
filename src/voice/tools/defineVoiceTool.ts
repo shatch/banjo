@@ -93,6 +93,13 @@ export interface VoiceTool<TInput = unknown, TCtx = CallContext> {
    * turn, and prompting another reply collided with it or talked over them.
    */
   replyOnlyIfSilent?: boolean;
+  /**
+   * note_follow_up, record_do_not_call (#251): its result prompts a reply unless
+   * the model asked them something alongside the call (respond: 'unless-asked').
+   * What's left to say comes after the tool, so a line before it, often a filler,
+   * doesn't finish the turn. Takes precedence over replyOnlyIfSilent.
+   */
+  replyUnlessAsked?: boolean;
 }
 
 export function defineVoiceTool<TInput, TCtx = CallContext>(spec: VoiceTool<TInput, TCtx>): VoiceTool<TInput, TCtx> {

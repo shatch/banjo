@@ -118,7 +118,7 @@ export class RecordingVoiceAI implements TextVoiceAIProvider {
     this.inner.sendUserText(text);
   }
 
-  sendToolResult(toolCallId: string, result: unknown, isError?: boolean, options?: { respond?: boolean | 'if-silent' }): void {
+  sendToolResult(toolCallId: string, result: unknown, isError?: boolean, options?: { respond?: boolean | 'if-silent' | 'unless-asked' }): void {
     this.record({
       call: 'sendToolResult',
       toolCallId,

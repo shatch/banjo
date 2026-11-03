@@ -31,7 +31,7 @@ describe('record_do_not_call (#150)', () => {
     expect(commonCallTools.some((t) => t.name === 'record_do_not_call')).toBe(false);
     expect(recordDoNotCallTool.endsCall).toBeFalsy();
     expect(recordDoNotCallTool.verbatimMessage).toBeUndefined();
-    expect(recordDoNotCallTool.replyOnlyIfSilent).toBe(true);
+    expect(recordDoNotCallTool.replyUnlessAsked).toBe(true);
   });
 
   it("records it on the call's contact, without ending the call, and says how to close", async () => {

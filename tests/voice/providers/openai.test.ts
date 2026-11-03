@@ -272,6 +272,19 @@ describe("OpenAIRealtimeProvider.sendToolResult, respond: 'if-silent' (#148 revi
     expect(sentTypes(ws)).toEqual(['conversation.item.create']);
   });
 
+  // #251: an ask call saved an answer alongside its read-back, which waits for
+  // them without asking. A prompt there asked the next question, and their "Yep"
+  // was saved as the answer to it.
+  it('prompts none after a read-back that does not ask anything', async () => {
+    const { provider, ws, server } = await openProvider();
+    server({ type: 'response.created', response: { id: 'resp-1' } });
+    server({ type: 'response.output_audio_transcript.done', response_id: 'resp-1', transcript: 'You close at 4 on Saturdays, got it.' });
+    server(toolCall('resp-1'));
+    provider.sendToolResult('call-1', { ok: true }, false, { respond: 'if-silent' });
+    server({ type: 'response.done', response: { id: 'resp-1', output: [] } });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create']);
+  });
+
   it('prompts a response once the silent response that called the tool is done', async () => {
     const { provider, ws, server } = await openProvider();
     server({ type: 'response.created', response: { id: 'resp-1' } });
@@ -290,6 +303,82 @@ describe("OpenAIRealtimeProvider.sendToolResult, respond: 'if-silent' (#148 revi
     server({ type: 'response.done', response: { id: 'resp-1', output: [] } });
     provider.sendToolResult('call-1', { ok: true }, false, { respond: 'if-silent' });
     expect(sentTypes(ws)).toEqual(['conversation.item.create']);
+  });
+});
+
+describe("OpenAIRealtimeProvider.sendToolResult, respond: 'unless-asked' (#251)", () => {
+  async function openProvider() {
+    const provider = new OpenAIRealtimeProvider();
+    const connectPromise = provider.connect(sessionConfig);
+    const ws = wsInstances[wsInstances.length - 1]!;
+    ws.readyState = FakeWs.OPEN;
+    ws.emit('open');
+    await connectPromise;
+    ws.sent = [];
+    const server = (msg: Record<string, unknown>) => ws.emit('message', Buffer.from(JSON.stringify(msg)));
+    return { provider, ws, server };
+  }
+  const toolCall = (responseId: string) => ({
+    type: 'response.function_call_arguments.done',
+    response_id: responseId,
+    call_id: 'call-1',
+    name: 'note_follow_up',
+    arguments: '{"request":"Find out about weather reports."}',
+  });
+
+  // #251: a live call said "Sure — just a second." alongside note_follow_up.
+  // That counted as having spoken, so no reply came, and the caller sat in
+  // silence for 19s until they said "Hello?".
+  it('prompts a reply when all the response said was a filler line, with no question for them', async () => {
+    const { provider, ws, server } = await openProvider();
+    server({ type: 'response.created', response: { id: 'resp-1' } });
+    server({ type: 'response.output_audio.delta', response_id: 'resp-1', delta: Buffer.from('x').toString('base64') });
+    server({ type: 'response.output_audio_transcript.done', response_id: 'resp-1', transcript: 'Sure — just a second.' });
+    server(toolCall('resp-1'));
+    provider.sendToolResult('call-1', { ok: true }, false, { respond: 'unless-asked' });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create']);
+    server({ type: 'response.done', response: { id: 'resp-1', output: [] } });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create', 'response.create']);
+  });
+
+  it('judges the line from its transcript deltas when no final transcript has come', async () => {
+    const { provider, ws, server } = await openProvider();
+    server({ type: 'response.created', response: { id: 'resp-1' } });
+    server({ type: 'response.output_audio_transcript.delta', response_id: 'resp-1', delta: 'One' });
+    server({ type: 'response.output_audio_transcript.delta', response_id: 'resp-1', delta: ' moment.' });
+    server(toolCall('resp-1'));
+    server({ type: 'response.done', response: { id: 'resp-1', output: [] } });
+    provider.sendToolResult('call-1', { ok: true }, false, { respond: 'unless-asked' });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create', 'response.create']);
+  });
+
+  it('prompts none when the line ends by asking them something, since it is their turn', async () => {
+    const { provider, ws, server } = await openProvider();
+    server({ type: 'response.created', response: { id: 'resp-1' } });
+    server({ type: 'response.output_audio_transcript.done', response_id: 'resp-1', transcript: 'Got it. Anything else, or are you all set?' });
+    server(toolCall('resp-1'));
+    provider.sendToolResult('call-1', { ok: true }, false, { respond: 'unless-asked' });
+    server({ type: 'response.done', response: { id: 'resp-1', output: [] } });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create']);
+  });
+
+  it('prompts none when they cut the line off: they are talking, and their turn gets its own reply', async () => {
+    const { provider, ws, server } = await openProvider();
+    server({ type: 'response.created', response: { id: 'resp-1' } });
+    server({ type: 'response.output_audio_transcript.done', response_id: 'resp-1', transcript: 'Sure, just a' });
+    server(toolCall('resp-1'));
+    provider.sendToolResult('call-1', { ok: true }, false, { respond: 'unless-asked' });
+    server({ type: 'response.done', response: { id: 'resp-1', status: 'cancelled', output: [] } });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create']);
+  });
+
+  it('prompts a reply when the response that called the tool said nothing', async () => {
+    const { provider, ws, server } = await openProvider();
+    server({ type: 'response.created', response: { id: 'resp-1' } });
+    server(toolCall('resp-1'));
+    provider.sendToolResult('call-1', { ok: true }, false, { respond: 'unless-asked' });
+    server({ type: 'response.done', response: { id: 'resp-1', output: [] } });
+    expect(sentTypes(ws)).toEqual(['conversation.item.create', 'response.create']);
   });
 });
 
