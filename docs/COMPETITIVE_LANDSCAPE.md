@@ -398,3 +398,91 @@ as the source of truth for bookings.
   its voice vendor, Sarvam.
 - **A streaming audio API or an affordable self-hosted tier from Vaani:** the provider route would then be worth
   another look.
+
+---
+
+# 2026-11-03 update: Phonic-1
+
+A look at [Phonic-1](https://phonic.ai/blog/phonic-1), a speech-to-speech model announced on 2026-10-29. Sources
+were its launch post, [pricing page](https://phonic.ai/pricing), [docs](https://docs.phonic.ai/),
+[WebSocket spec](https://docs.phonic.ai/asyncapi.yaml) and the
+[Artificial Analysis index](https://artificialanalysis.ai/speech-to-speech), read on 2026-11-02. No account was
+created and no test call was placed, so "not documented" below doesn't prove a feature is absent. Phonic's latency,
+compliance and customer claims are its own and weren't verified.
+
+## Verdict: test it, don't switch yet
+
+Unlike Vaani, Phonic-1 is a real candidate for a `VoiceAIProvider`: its API streams audio and leaves the call to
+Banjo. It scores far ahead of `gpt-realtime` and modestly ahead of `gpt-live-1`. But no benchmark found tests what
+Banjo does on calls: voicemail, phone menus, holds and outbound etiquette. Run a throwaway test before building an
+adapter, and before making `gpt-live-1` the default ([#230](https://github.com/shatch/banjo/pull/230)–[#232](https://github.com/shatch/banjo/pull/232)).
+
+## What it is
+
+- **Company:** $31.5M raised in total, including a $27.5M Series A announced with the model.
+- **Product:** a closed model reached through a WebSocket API, TypeScript and Python SDKs, a CLI or a no-code agent
+  builder. Phonic claims 50+ languages, and tool calls that can run while the caller is still speaking.
+- **Price:** $0.07/min on Starter, $0.065/min on Pro with a $200 monthly minimum, with no per-token charges. Twilio
+  appears to be extra. At personal call volume, the difference from Banjo's current cost is too small to decide this.
+- **Self-hosting:** on-prem and VPC deployment are Enterprise-only.
+
+## Benchmarks
+
+From Artificial Analysis: simulated customer-service calls and audio question sets. The page doesn't say whether
+8kHz phone audio was tested.
+
+| Model | Banjo status | Index | τ-Voice | Task success | Time to first audio | Preference (Elo) | Cost/hour of input audio |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Phonic 1 (High) | Not integrated | 87.1 | 79.9% | 92.3% | 0.61s | 1012 | $4.20 |
+| Grok Voice 3.0 | Not integrated | 86.9 | 71.6% | 94.8% | 0.81s | 1059 | $4.80 |
+| GPT-Live-1 (Astra, medium) | `openai-live`, off by default | 83.2 | 74.5% | 87.4% | 1.34s | 1027 | $5.83 |
+| Gemini 3.8 Live (Extended Thinking, High) | Newer than the unverified `gemini` adapter | 82.6 | 68.6% | 89.1% | 1.35s | 966 | $3.50 |
+| GPT-Realtime-2.1 High | Not tried | 75.2 | 45.7% | 91.5% | 1.21s | 931 | $10.75 |
+| GPT Realtime (Aug '25) | Assumed match for the `openai` default, `gpt-realtime` | 69.1 | 30.4% | 89.4% | 0.98s | 967 | $11.08 |
+
+- **The lead is thin:** Phonic is 0.2 ahead of Grok on the index, on the strength of its speed and agentic scores.
+- **Preference results conflict:** Phonic's post reports listeners preferring it to GPT-Live 61.5% to 32.0% in blind
+  tests by Podonos. Artificial Analysis has it slightly behind GPT-Live, and behind at least six listed models.
+- **Weak evidence:** the post's 1.1s vs 15.7s comparison with GPT-Live is a single demo. Artificial Analysis's
+  GPT-Live scores for τ-Voice used one trial, against three where available.
+
+## Fit with Banjo
+
+Read from the docs, not tested.
+
+| Banjo needs | Phonic offers | Fit |
+| --- | --- | --- |
+| Twilio audio without conversion | `mulaw_8000` both ways, and a documented Twilio Media Stream example | Good |
+| Exact voicemail wording (`sayVerbatim`) | `say`, 1–1000 characters, optionally uninterruptible | Promising; exact delivery untested. GPT-Live has no equivalent |
+| Mid-call notes and nudges | `add_system_message`, `generate_reply` | Good |
+| Barge-in and transcripts | `interrupted_response`, `input_text`, text on audio chunks | Good |
+| Banjo's own tools | `tool_call` and `tool_call_output`; 5s default timeout, up to 180s | Good, with the timeout raised |
+| Digit presses | `keypad_input`; Banjo's tone-based `press_digits` should still work | Probably fine |
+| Reply control per tool result (`respond`, [#133](https://github.com/shatch/banjo/issues/133), [#251](https://github.com/shatch/banjo/issues/251)) | `forbid_speech_after_tool_call`, set per tool | **Gap:** this logic would need rework |
+| Silent tool calls | Speech before a tool call is on by default, and can be turned off | **Risk:** the default can recreate #251 |
+| Tools that must finish, like `confirm_appointment` | Caller speech cancels sync tools by default; `uninterruptible` overrides it | **Risk:** needs setting per tool |
+| Answers saved only after confirmation | Tools can run while the caller is still talking | **Risk:** could add false answers |
+| `report_answers_and_end_call`'s list of answers | Pre-defined tools show flat parameters; inline tools use an OpenAI-style schema | **Unconfirmed:** nested parameters aren't documented |
+| Hold and voicemail detection | Neither documented; `choose_not_to_respond` is the nearest control | Banjo keeps its own logic; needs testing |
+| No third-party retention by default | Audio and transcripts kept indefinitely unless set otherwise; zero retention is a per-agent setting | **Must be on.** Some models aren't available with it; confirm `phonic-1` is |
+| Scenario evals | No text mode documented, the same blocker as GPT-Live | Phone-line fixtures only, unless `generate_reply`'s `user_message` can drive a text sim |
+
+## What to do
+
+1. **Hold the GPT-Live default:** that plan assumed GPT-Live was the obvious next model.
+2. **Run a throwaway test, not an adapter:** the voicemail, hold and phone-menu fixtures, plus one ask call and one
+   booking call to see how tools behave mid-speech.
+3. **Judge it on Banjo's own failures:** false answers, silences, voicemail delivery and booking correctness, not
+   the index score.
+4. **Put GPT-Realtime-2.1 through the same test:** it may be the cheapest improvement, since it needs no new vendor.
+   Whether it works with the current `openai` adapter unchanged wasn't checked.
+
+Phonic offers $250 in free credits for sign-ups by November 30.
+
+## What would change this
+
+- **The test passes on real calls:** build the adapter, then choose a default from those results.
+- **Tools fired mid-speech cause false answers or early bookings, and the settings can't stop it:** drop it, whatever
+  the benchmarks say.
+- **Nested tool parameters aren't supported:** `report_answers_and_end_call` could be flattened, since `record_answer`
+  already saves one answer at a time, but that changes a tool all ask calls rely on.
