@@ -1,6 +1,7 @@
 import { oneLine } from '../approvals/request.js';
 import { config } from '../config/index.js';
 import type { Contact } from '../contacts/schema.js';
+import { responsesText } from '../lib/openaiResponses.js';
 import type { Task } from '../tasks/schema.js';
 
 /**
@@ -86,21 +87,6 @@ export function screenInput(request: ScreenRequest): string {
 const SCREEN_TIMEOUT_MS = 20_000;
 
 /** One Responses API call with SCREEN_CALLS_MODEL; throws on any failure, which holds the call. */
-async function judgeWithOpenAI(instructions: string, input: string): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/responses', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${config.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: config.SCREEN_CALLS_MODEL, instructions, input, store: false }),
-    signal: AbortSignal.timeout(SCREEN_TIMEOUT_MS),
-  });
-  if (!res.ok) throw new Error(`screening failed: OpenAI returned ${res.status}`);
-  const json = (await res.json()) as { output?: { type?: string; content?: { type?: string; text?: string }[] }[] };
-  const text = (json.output ?? [])
-    .filter((item) => item.type === 'message')
-    .flatMap((item) => item.content ?? [])
-    .filter((c) => c.type === 'output_text')
-    .map((c) => c.text ?? '')
-    .join('');
-  if (!text) throw new Error('screening failed: no answer text');
-  return text;
+function judgeWithOpenAI(instructions: string, input: string): Promise<string> {
+  return responsesText({ model: config.SCREEN_CALLS_MODEL, instructions, input, timeoutMs: SCREEN_TIMEOUT_MS });
 }
