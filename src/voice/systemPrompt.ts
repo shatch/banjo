@@ -233,13 +233,23 @@ function guidanceSections(
 
   if (direction === 'outbound') sections.push(workingWithThemSection(transfer));
   if (transfer) sections.push(transferSection(direction));
-  if (direction === 'outbound' && config.VOICE_AI_PROVIDER === 'openai') sections.push(HOLD_SECTION);
+  if (direction === 'outbound' && canWaitOnHold()) sections.push(HOLD_SECTION);
   return sections;
 }
 
-/** Whether outbound calls get ask_owner: it needs the answer added mid-call (VoiceAIProvider.addContext), which only OpenAI Realtime has. */
+/** The providers with VoiceAIProvider.setHold, judgeHoldLine and addContext: OpenAI Realtime, and GPT-Live since its adapter gained them. */
+function providerCanHoldAndAddContext(): boolean {
+  return config.VOICE_AI_PROVIDER === 'openai' || config.VOICE_AI_PROVIDER === 'openai-live';
+}
+
+/** Whether outbound calls get wait_on_hold (#151), and the phone menu and hold guidance that names it. */
+export function canWaitOnHold(): boolean {
+  return providerCanHoldAndAddContext();
+}
+
+/** Whether outbound calls get ask_owner: it needs the answer added mid-call (VoiceAIProvider.addContext). */
 export function canAskOwner(): boolean {
-  return config.ASK_OWNER_ENABLED && config.VOICE_AI_PROVIDER === 'openai';
+  return config.ASK_OWNER_ENABLED && providerCanHoldAndAddContext();
 }
 
 /**
@@ -273,8 +283,7 @@ function workingWithThemSection(transfer: boolean): GuidanceSection {
 
 /**
  * Phone menus and hold queues (#151). Outbound only, and only where the voice
- * provider can wait on hold (OpenAI Realtime; see canWaitOnHold in
- * tasks/callSessionAdapter.ts), since it names wait_on_hold.
+ * provider can wait on hold (canWaitOnHold), since it names wait_on_hold.
  */
 const HOLD_SECTION: GuidanceSection = {
   voiceLayer: true,
