@@ -44,5 +44,31 @@ services:
       postgres:
         condition: service_healthy
 
+  # Try Banjo without a phone: `OPENAI_API_KEY=sk-... docker compose run --rm sim`.
+  # Banjo "calls" a business and you type as whoever answers (src/sim/cli.ts).
+  # Needs no .env, no Twilio and no Node install: only Docker and an OpenAI key.
+  # Options go on the end: `docker compose run --rm sim --mode ask`.
+  # Behind a profile so `docker compose up` never starts it.
+  sim:
+    profiles: [sim]
+    image: ghcr.io/shatch/banjo:${BANJO_VERSION:-latest}
+    build: .
+    init: true
+    entrypoint: ['node', 'dist/sim/cli.js']
+    # The image's healthcheck asks the app's /health, which the sim doesn't serve.
+    healthcheck:
+      disable: true
+    environment:
+      # Passed through from your shell, or from .env if you have one.
+      - OPENAI_API_KEY
+      # The sim swaps the database name for banjo_sim; it never touches `banjo`.
+      - DATABASE_URL=postgresql://banjo:banjo@postgres:5432/banjo
+      - BANJO_SIM_COMMAND=docker compose run --rm sim
+    stdin_open: true
+    tty: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   banjo_postgres_data:

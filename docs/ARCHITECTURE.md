@@ -748,7 +748,7 @@ None of it was captured: a cold transfer drops Banjo off the line, and `transfer
 - **The screening prompt.** It may show up as text on the owner's channel.
 - **A live call.** This hasn't been tested on one yet.
 
-## Text-mode simulator (`src/sim/`, `scripts/sim.ts`)
+## Text-mode simulator (`src/sim/`, entry point `src/sim/cli.ts`)
 
 `npm run sim` places a call that's real everywhere except the phone line: the `place_call` handler,
 the orchestrator, the outbound `CallSession` adapter, the system prompt, every tool, and the rows in

@@ -350,10 +350,22 @@ yours.
 
 ## Try it without a phone
 
-`npm run sim` runs a call in your terminal: Banjo calls a business, and you type as whoever answers.
+One command, with Docker and an OpenAI API key. No Twilio account, no phone number, no `.env`:
+
+```bash
+git clone https://github.com/shatch/banjo && cd banjo
+OPENAI_API_KEY=sk-... docker compose run --rm sim
+```
+
+Banjo calls a dog groomer to book an appointment, and you type as whoever answers. Try being
+unhelpful: offer a time, change your mind, ask where its owner works.
+
 It's the real thing apart from the phone line: the same system prompt, tools and call handling, and the
 same task records in Postgres. No call is placed, no calendar is written (bookings go to a pretend
-calendar that's free 9 to 6), and nobody is notified. It needs only an OpenAI API key and Postgres.
+calendar that's free 9 to 6), and nobody is notified. A call costs roughly 5 to 15 cents of OpenAI usage.
+
+Options go on the end (`docker compose run --rm sim --mode ask`, or `--help` for all of them). From a
+checkout with Node installed, `npm run sim` is the same thing:
 
 ```bash
 docker compose up -d postgres
@@ -369,7 +381,7 @@ _A scripted run (`--script`, playing the lines starting with `~` as a hold queue
 Options: `--business`, `--goal`, `--mode conversation`, `--mode ask` with one or more `--question`
 (checked as `place_call` checks them: 1 to 5, each on one line), `--duration` (booking only), `--transfer` (or `--warm` with `--owner accept|decline|no-answer`), and
 `--script <file>` to play your side from a file (a line starting with `~` plays like a recording, for menus and hold queues). Run `npm run sim -- --help` or see the top of
-`scripts/sim.ts`. The sim keeps its records in a separate `banjo_sim` database, which it empties at
+`src/sim/cli.ts`. The sim keeps its records in a separate `banjo_sim` database, which it empties at
 the start of each run, and never touches your real one.
 
 Text isn't audio. The sim tests what Banjo says and does, not how a call sounds: talking over each
