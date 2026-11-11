@@ -83,6 +83,17 @@ export const STILL_THERE_CUE = "They haven't said anything for a while. Ask them
 // #154: Banjo's line was cut off before they heard it, and no tool followed
 // to end the call, so they've heard almost nothing. Says what to say, not
 // what to avoid: quoting a narration invited it on live calls.
+// #251: a filler line ("One sec.") said alongside record_answer, which gets
+// no reply after a line, left them waiting. Once they've been quiet this long
+// after it played, Banjo is cued to carry on. Short, since they're waiting on
+// Banjo; their "Yep" to a read-back comes well inside it.
+const CARRY_ON_QUIET_MS = 4000;
+export const CARRY_ON_CUE =
+  "They are waiting for you. Carry on with the call now: ask your next question, or, if none are left, say goodbye and end the call.";
+// #251: how many times the silence watchdog is re-armed for an empty turn
+// since their latest line, so a model that keeps saying nothing can't be
+// nudged forever.
+const MAX_SILENT_TURN_REARMS = 2;
 export const CUT_LINE_CUE =
   'They did not hear your last line. Say to them now only a short goodbye, such as "Okay, take care. Bye!", and end the call in the same turn.';
 
@@ -333,6 +344,16 @@ export class CallSession<TCtx = CallContext> {
    * ends; `cutSinceThem` until they speak again, so the ending isn't refused.
    */
   private assistantPartial = '';
+  /**
+   * #251: Banjo's lines so far, and the timer that cues it to carry on after a
+   * filler line said alongside a replyOnlyIfSilent tool (record_answer).
+   * `ifSilentToolSinceThem` is set when such a tool's result is sent;
+   * `silentTurnRearms` counts watchdog re-arms for an empty turn since their line.
+   */
+  private assistantLineCount = 0;
+  private ifSilentToolSinceThem = false;
+  private carryOnTimer: ReturnType<typeof setTimeout> | null = null;
+  private silentTurnRearms = 0;
   private narrationCut: { toolCalled: boolean; finalSeen: boolean } | null = null;
   private cutSinceThem = false;
   /** Cues a goodbye if they never answer the question a refused ending was waiting on (#130). */
@@ -603,6 +624,7 @@ export class CallSession<TCtx = CallContext> {
           if (event.role === 'assistant' && this.firstAssistantLine === undefined) this.firstAssistantLine = event.text;
           this.lastSpeaker = event.role;
           if (event.role === 'assistant') {
+            this.assistantLineCount++;
             this.lastAssistantLine = event.text;
             this.banjoRepliedToUser = true;
             if (quality === 'ok' && event.text.includes('?') && !saidGoodbye(event.text)) this.banjoAskedSinceThem = true;
@@ -618,6 +640,9 @@ export class CallSession<TCtx = CallContext> {
             if (this.callEndingToolCallId !== null) this.calleeSpokeDuringEnd = event.text;
             else {
               this.cutSinceThem = false;
+              this.ifSilentToolSinceThem = false;
+              this.silentTurnRearms = 0;
+              this.clearCarryOnTimer();
               this.endRefused = false;
               this.banjoRepliedToUser = false;
               this.banjoAskedSinceThem = false;
@@ -720,6 +745,8 @@ export class CallSession<TCtx = CallContext> {
         this.lastTurnEndVerbatim = event.verbatim === true;
         this.turnEndWaiters.splice(0).forEach((resolve) => resolve());
         this.armQuietAfterQuestionTimer();
+        this.rearmWatchdogIfSilentTurn();
+        this.armCarryOnTimer();
         break;
     }
   };
@@ -1143,7 +1170,12 @@ export class CallSession<TCtx = CallContext> {
         return;
       }
       if (tool.replyUnlessAsked) this.voiceAI.sendToolResult(toolCallId, result, false, { respond: 'unless-asked' });
-      else if (tool.replyOnlyIfSilent) this.voiceAI.sendToolResult(toolCallId, result, false, { respond: 'if-silent' });
+      else if (tool.replyOnlyIfSilent) {
+        this.voiceAI.sendToolResult(toolCallId, result, false, { respond: 'if-silent' });
+        this.ifSilentToolSinceThem = true;
+        // Its turn may already be over, with no reply to come after a line.
+        if (!this.responseActive) this.armCarryOnTimer();
+      }
       else this.voiceAI.sendToolResult(toolCallId, result, false);
     } catch (err) {
       logger.error({ err, toolCallId, name }, 'Tool handler threw');
@@ -1482,6 +1514,53 @@ export class CallSession<TCtx = CallContext> {
     this.promptWithNote(CUT_LINE_CUE);
   }
 
+  /**
+   * #251: an eval run went silent for good after their "Yep, that's right.":
+   * record_answer's turn said nothing, and so did whatever followed its result
+   * (a reply that came back empty, or a prompt the server rejected). The
+   * watchdog their line armed had been cleared by the tool call. So a turn
+   * that ends with nothing said since their line, and no tool still running,
+   * arms it again: at most MAX_SILENT_TURN_REARMS times per line of theirs.
+   */
+  private rearmWatchdogIfSilentTurn(): void {
+    if (!this.saidNothingSinceThem() || this.inFlightToolHandlers.size > 0) return;
+    if (this.hold || this.isEnding() || this.callEndingToolCallId !== null || this.verbatimDelivery) return;
+    if (this.silentTurnRearms >= MAX_SILENT_TURN_REARMS) return;
+    this.silentTurnRearms++;
+    this.armSilenceWatchdogIfNeeded();
+  }
+
+  /**
+   * #251: a filler line said with record_answer ("Sure, one sec.") gets no
+   * reply after it, so they're left waiting on a line that promised more. A
+   * reply can't be prompted straight away: there the line is often a read-back
+   * waiting for their "Yep", and a prompted next question made the "Yep" its
+   * answer. So once they've been quiet CARRY_ON_QUIET_MS after the line played,
+   * with nothing new said by either side, Banjo is cued to carry on. Not after
+   * a question (#179's timer covers that) or a goodbye.
+   */
+  private armCarryOnTimer(): void {
+    if (this.carryOnTimer || !this.ifSilentToolSinceThem || !this.banjoRepliedToUser || this.banjoAskedSinceThem) return;
+    if (saidGoodbye(this.lastAssistantLine)) return;
+    if (this.hold || this.isEnding() || this.callEndingToolCallId !== null) return;
+    const theirLines = this.theirLineCount;
+    const banjoLines = this.assistantLineCount;
+    const stillPlayingMs = Math.max(0, this.audioPlaybackTracker.estimatedDoneAt() - Date.now());
+    this.carryOnTimer = setTimeout(() => {
+      this.carryOnTimer = null;
+      if (this.theirLineCount !== theirLines || this.assistantLineCount !== banjoLines || this.theyAreSpeaking) return;
+      if (this.responseActive || this.hold || this.isEnding() || this.callEndingToolCallId !== null) return;
+      this.ifSilentToolSinceThem = false;
+      logger.warn({ callId: this.opts.callId }, 'They have been waiting since a line said with record_answer — cueing Banjo to carry on (#251)');
+      this.promptWithNote(CARRY_ON_CUE);
+    }, stillPlayingMs + CARRY_ON_QUIET_MS);
+  }
+
+  private clearCarryOnTimer(): void {
+    if (this.carryOnTimer) clearTimeout(this.carryOnTimer);
+    this.carryOnTimer = null;
+  }
+
   private saidNothingSinceThem(): boolean {
     return this.lastUserLine !== '' && !this.banjoRepliedToUser;
   }
@@ -1674,6 +1753,7 @@ export class CallSession<TCtx = CallContext> {
     this.clearSilenceWatchdog();
     this.clearUnansweredQuestionTimer();
     this.clearQuietAfterQuestionTimer();
+    this.clearCarryOnTimer();
     this.stopHold();
     this.cancelPendingRecording();
     this.cutOffVerbatimDelivery('call_failed');
@@ -1710,7 +1790,13 @@ export class CallSession<TCtx = CallContext> {
 
   private trackToolHandler(run: Promise<void>, budgetMs: number): void {
     this.inFlightToolHandlers.set(run, Date.now() + budgetMs);
-    run.finally(() => this.inFlightToolHandlers.delete(run)).catch(() => {});
+    run
+      .finally(() => {
+        this.inFlightToolHandlers.delete(run);
+        // #251: the tool's own turn may have ended first, while it still ran.
+        if (!this.responseActive) this.rearmWatchdogIfSilentTurn();
+      })
+      .catch(() => {});
   }
 
   /**
@@ -1786,6 +1872,7 @@ export class CallSession<TCtx = CallContext> {
     this.clearSilenceWatchdog();
     this.clearUnansweredQuestionTimer();
     this.clearQuietAfterQuestionTimer();
+    this.clearCarryOnTimer();
     this.stopHold();
     this.cancelPendingRecording();
     this.setState('ending');
