@@ -774,6 +774,13 @@ noise and echo (#143), the playback timing behind `hangUpAfterSpeaking`, and whe
 Text replies can also differ a little from spoken ones. Use the sim for what Banjo says and which
 tools it calls, and a real call for how it sounds.
 
+`npm run eval -- --spoken` (#154) makes Banjo's replies spoken: `OpenAIRealtimeProvider`'s
+`spokenReplies` asks for audio output and reads each reply back through its transcript, while the
+other party still types. The audio itself goes nowhere. It costs more than text, and the cost
+column prices audio output at the text rate, so it undercounts. On 2026-11-10 it didn't reproduce
+the #154 narration either (0 in 40 runs, against 0 in 40 text-only), so it doesn't cover
+everything a live call does: audio input, longer calls and the node's settings still differ.
+
 ### Scenario evals (`evals/`, `src/evals/`, #188)
 
 A scenario (`evals/scenarios/<id>.yaml`, schema in `src/evals/scenario.ts`) is a sim call with a
@@ -965,6 +972,14 @@ The LiveKit `TelephonyProvider` adapter (`src/telephony/providers/livekit.ts` �
     - **Sim:** a `(silence N)` straight after a `~` line is a pause in the recording, on its clock, not waiting for Banjo. Scenario `voicemail-two-part` (reaches with `quietBefore`: nothing of Banjo's before "at the tone").
 
     **Sim check:** `voicemail-two-part` 4/5 (plus 2/2 recorded), `voicemail` 2/3. Each failure was the same, older flake: the model narrated ("It looks like the voicemail process is already under way…") in place of the forced message, which the word-for-word check caught, ending the call `escalated` with no message.
+
+36. **[FIXED, structural, not yet re-verified against a live call]** Banjo narrated ending the call once the other party had signed off (#154). Four live conversation calls, 2026-10-12 to 2026-11-02, each heard a line like "Got it, I'll wrap this up warmly." or "let's wrap this up quickly so you can get back to your show." before the #139 fixed goodbye. Three prompt changes (#144, #154 in #175, #179) didn't stop it, and the sim never showed it: 0 narrations in 40 text-only runs and 0 in 40 `--spoken` runs of scenarios built from those calls. The last two lines echo prompt wording ("warm goodbye", "sign-off"), so the model may be reading the goodbye instruction back as a plan. That's a hypothesis, untested.
+
+    **Fix:** the narration is cut off as it's spoken. On `openai`, the transcript of Banjo's speech streams ahead of the audio. Measured 2026-11-10 on the three live lines: "wrap" arrived 260-640 ms after the line's first audio, while the word sits 880-1,470 ms into it. `VoiceAIProvider.transcriptLeadsAudio` marks a provider where that holds (only `openai`). `CallSession` watches each streaming line. Once it matches `narratesEnding()` (`session/goodbye.ts`), and their latest line is a done signal (`isSigningOff`) or says they have to go (`isLeaving`), it flushes Twilio's buffer (`telephony.interrupt`, as on a barge-in) and drops the rest of that line's audio. Their line is checked again when it's transcribed after Banjo's reply has started. The line's final transcript is judged by the part before the narration, so it counts as no goodbye. The ending tool then goes through with no refusal, and the fixed goodbye is said first. The saved transcript keeps the rest, marked `[cut off, not heard: …]`. If no tool follows the cut line, Banjo is cued to say a short goodbye and end the call (`CUT_LINE_CUE`). Never during a forced line (a voicemail message, the fixed goodbye) or a hold, and never mid-call: a line like "we can wrap up the details Thursday" is only cut once they've signed off. Each cut is logged ("Cut off a line that narrated ending the call"), with the line only under `LOG_TRANSCRIPTS`, so the logs give a live narration rate. The callee should hear only the first word or two ("Got it,") before the fixed goodbye.
+
+    **Eval check:** `no_narrated_ending`, run on every scenario, fails any run where Banjo's line describes the ending. It reads the provider's transcripts, so it counts narrations the cut stops too. Scenarios `signoff-all-set`, `signoff-helpful`, `signoff-thursday`.
+
+    **Still to do:** a live conversation call that ends on a done signal, to check that the log shows the cut and the callee hears only the fixed goodbye. Not on `openai-live`, whose transcripts arrive late.
 
 ### Operational, not a code fix
 

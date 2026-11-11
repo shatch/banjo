@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isCuttingIn, isSigningOff, saidGoodbye } from '../../src/session/goodbye.js';
+import { isCuttingIn, isLeaving, isSigningOff, narratesEnding, narrationStart, saidGoodbye } from '../../src/session/goodbye.js';
 
 describe('saidGoodbye (#102)', () => {
   it.each([
@@ -95,5 +95,50 @@ describe('isSigningOff (#144)', () => {
     'Before you go, one more thing.',
   ])("doesn't treat an acknowledgement, a question or a redirect as signing off: %s", (line) => {
     expect(isSigningOff(line)).toBe(false);
+  });
+});
+
+describe('narratesEnding (#154)', () => {
+  it.each([
+    // Live calls, 2026-10-12 to 2026-11-02: each was heard before the fixed goodbye.
+    'Okay, I\'m glad that helped. Let me wrap up with a quick note.',
+    'Okay, got it—let\'s wrap this up quickly so you can get back to your show.',
+    'Sounds good—let me just wrap this up with a polite sign-off and a quick summary.',
+    "Got it, I'll wrap this up warmly.",
+    "You're welcome — let me say a quick goodbye and close things out.",
+    "Understood. I'll go ahead and end the call. Take care!",
+  ])('catches a line that describes the ending: %s', (line) => {
+    expect(narratesEnding(line)).toBe(true);
+  });
+
+  it.each([
+    "You're welcome — take care, bye!",
+    "That's all I need, thanks so much — bye!",
+    'First, what time do you close on Saturdays?',
+    'Great, see you Thursday at 3!',
+    'Okay, take care. Bye!',
+  ])("doesn't catch a real goodbye or an ordinary line: %s", (line) => {
+    expect(narratesEnding(line)).toBe(false);
+  });
+});
+
+describe('narrationStart (#154)', () => {
+  it('points at where the narration begins, so what comes before is what was meant to be heard', () => {
+    const line = "Got it, I'll wrap this up warmly.";
+    expect(line.slice(0, narrationStart(line))).toBe("Got it, I'll ");
+    expect(narrationStart('Okay, take care. Bye!')).toBe(-1);
+  });
+});
+
+describe('isLeaving (#154)', () => {
+  it.each(["Sorry, I have to go, I'm watching my show.", 'I gotta run.', 'I need to get back to work.', "I'm in the middle of dinner."])(
+    'catches them saying they have to go: %s',
+    (line) => {
+      expect(isLeaving(line)).toBe(true);
+    },
+  );
+
+  it.each(['Can we do Thursday instead?', 'Go ahead.', "I'll go with the 3 o'clock."])("doesn't catch an ordinary line: %s", (line) => {
+    expect(isLeaving(line)).toBe(false);
   });
 });

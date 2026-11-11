@@ -35,6 +35,7 @@ async function main(): Promise<void> {
       run: { type: 'string', default: '1' },
       record: { type: 'string' },
       verbose: { type: 'boolean', default: false },
+      spoken: { type: 'boolean', default: false },
     },
   });
   if (!values.scenario || !values.out) fail('--scenario and --out are required.');
@@ -76,7 +77,7 @@ async function main(): Promise<void> {
     relationshipTier: scenario.task.relationshipTier,
     owner: OWNER_ANSWERS[scenario.flags.owner],
     ...(scenario.flags.askOwner !== undefined && { ownerAnswer: scenario.flags.askOwner }),
-    createVoiceAI: () => (recorder = new RecordingVoiceAI(new OpenAIRealtimeProvider({ textOnly: true }))),
+    createVoiceAI: () => (recorder = new RecordingVoiceAI(new OpenAIRealtimeProvider({ textOnly: true, spokenReplies: values.spoken }))),
     print,
   });
 

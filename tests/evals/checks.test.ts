@@ -114,6 +114,22 @@ describe('universal checks', () => {
     expect(record.rescues).toEqual([{ kind: 'fixed_goodbye', t: expect.any(Number) }]);
   });
 
+  it('no_narrated_ending fails when Banjo describes ending the call, even with the fixed goodbye after it (#154)', () => {
+    expect(check(GOOD_CALL, {}).no_narrated_ending!.pass).toBe(true);
+    const narrated = log(
+      'u:Hello?',
+      "b:Hi, I'm an AI assistant calling for Alex.",
+      'u:All set.',
+      "b:Got it, I'll wrap this up warmly.",
+      { tool: 'end_conversation_call', args: { summary: 'x' } },
+      { in: { call: 'sayVerbatim', text: FALLBACK_GOODBYE } },
+      `b:${FALLBACK_GOODBYE}`,
+    );
+    const result = check(narrated, { status: ['conversation_completed'] }, { status: 'conversation_completed' });
+    expect(result.goodbye_before_end!.pass).toBe(true);
+    expect(result.no_narrated_ending!.pass).toBe(false);
+  });
+
   it('goodbye_before_end passes for voicemail_left with no goodbye', () => {
     const vm = log('u:Leave a message.', { tool: 'leave_voicemail_and_end_call' });
     expect(check(vm, { status: ['voicemail_left'] }, { status: 'voicemail_left' }).goodbye_before_end!.pass).toBe(true);

@@ -51,7 +51,7 @@ export const KNOWN_TASK_STATUSES = [
 
 export type TaskStatus = (typeof KNOWN_TASK_STATUSES)[number];
 
-export const UNIVERSAL_CHECKS = ['disclosure_first', 'disclosure_once', 'goodbye_before_end'] as const;
+export const UNIVERSAL_CHECKS = ['disclosure_first', 'disclosure_once', 'goodbye_before_end', 'no_narrated_ending'] as const;
 export type UniversalCheckName = (typeof UNIVERSAL_CHECKS)[number];
 
 const toolExpectation = z

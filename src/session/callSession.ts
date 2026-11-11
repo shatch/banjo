@@ -11,7 +11,7 @@ import { negotiateAudioFormats, resolveAudioPipeline, type AudioPipeline } from 
 import type { CallContext } from './types.js';
 import { ANSWER_CHECK_MAX_LINES, answerNote } from './answerCheck.js';
 import { checkDisclosure, type DisclosureResult } from './disclosure.js';
-import { isCuttingIn, isSigningOff, saidGoodbye } from './goodbye.js';
+import { isCuttingIn, isLeaving, isSigningOff, narrationStart, narratesEnding, saidGoodbye } from './goodbye.js';
 import { holdBudgetMs, isRepeatOnHold, menuPromptNote, voicemailOnHoldNote, personPickedUpNote } from './hold.js';
 import { classifyTranscript } from './transcriptQuality.js';
 import { isCarrierPreamble, soundsLikeVoicemailGreeting } from './voicemailGreeting.js';
@@ -80,6 +80,11 @@ export const UNANSWERED_QUESTION_CUE =
 // after a question and hung up, with Banjo silent throughout.
 const QUIET_AFTER_QUESTION_MS = 12_000;
 export const STILL_THERE_CUE = "They haven't said anything for a while. Ask them once, in a few words, whether they're still there. Say nothing else.";
+// #154: Banjo's line was cut off before they heard it, and no tool followed
+// to end the call, so they've heard almost nothing. Says what to say, not
+// what to avoid: quoting a narration invited it on live calls.
+export const CUT_LINE_CUE =
+  'They did not hear your last line. Say to them now only a short goodbye, such as "Okay, take care. Bye!", and end the call in the same turn.';
 
 // A voicemail message waits for the greeting to end (#198): until they've
 // been quiet this long since their last line, and aren't mid-speech, with
@@ -319,6 +324,17 @@ export class CallSession<TCtx = CallContext> {
    * banjoRepliedToUser.
    */
   private banjoAskedSinceThem = false;
+  /**
+   * #154: Banjo narrated ending the call ("I'll wrap this up warmly.") once
+   * they'd signed off, on four live calls despite every prompt rule against
+   * it. The streaming transcript runs ahead of the audio, so the line is cut
+   * there and the fixed goodbye (#139) said instead. `assistantPartial` is the
+   * current line so far; `narrationCut` is set from the cut until the turn
+   * ends; `cutSinceThem` until they speak again, so the ending isn't refused.
+   */
+  private assistantPartial = '';
+  private narrationCut: { toolCalled: boolean; finalSeen: boolean } | null = null;
+  private cutSinceThem = false;
   /** Cues a goodbye if they never answer the question a refused ending was waiting on (#130). */
   private unansweredQuestionTimer: ReturnType<typeof setTimeout> | null = null;
   /** Checks they're still there, then cues a goodbye, when Banjo's question meets silence (#179). */
@@ -508,6 +524,8 @@ export class CallSession<TCtx = CallContext> {
         // armed silence watchdog (see SILENCE_WATCHDOG_MS's doc comment).
         this.clearSilenceWatchdog();
         this.responseActive = true;
+        // #154: the rest of a cut line is never played.
+        if (this.narrationCut) break;
         const outboundChunk = this.pipeline.outbound(event.chunk);
         this.audioPlaybackTracker.recordChunkSent(outboundChunk.data.length);
         this.audioChunksOut++;
@@ -520,6 +538,7 @@ export class CallSession<TCtx = CallContext> {
         // speaking yet (e.g. check_my_availability before saying anything).
         this.clearSilenceWatchdog();
         this.responseActive = true;
+        if (this.narrationCut) this.narrationCut.toolCalled = true;
         this.trackToolHandler(
           this.handleToolCall(event.call.id, event.call.name, event.call.arguments, event.call.unparsedArguments),
           this.toolBudgetMs(event.call.name),
@@ -540,14 +559,30 @@ export class CallSession<TCtx = CallContext> {
         // debugging rather than an unconditional info-level log. The logger's
         // redact config (lib/logger.ts, #8) deliberately leaves this `text`
         // alone: turning LOG_TRANSCRIPTS on is asking to see it.
-        if (!event.isFinal) break;
+        if (!event.isFinal) {
+          if (event.role === 'assistant') {
+            this.assistantPartial += event.text;
+            this.cutNarrationIfDue();
+          }
+          break;
+        }
+        let recorded = false;
+        if (event.role === 'assistant') {
+          this.assistantPartial = '';
+          const cut = this.heardPartOfCutLine(event.text);
+          if (cut) {
+            this.recordTranscript('assistant', cut.record, 'ok');
+            recorded = true;
+            event = { ...event, text: cut.heard };
+          }
+        }
         {
           // #25: the transcriber finalises turns nobody spoke. Empty ones are
           // dropped; suspect ones are logged with a flag so they can't pass
           // for something the other party said.
           const quality = classifyTranscript(event.text);
           if (quality === 'empty') break;
-          this.recordTranscript(event.role, event.text, quality);
+          if (!recorded) this.recordTranscript(event.role, event.text, quality);
           if (event.role === 'user') {
             this.theirSpeechAt = Date.now();
             this.theyAreSpeaking = false;
@@ -582,6 +617,7 @@ export class CallSession<TCtx = CallContext> {
             this.clearQuietAfterQuestionTimer();
             if (this.callEndingToolCallId !== null) this.calleeSpokeDuringEnd = event.text;
             else {
+              this.cutSinceThem = false;
               this.endRefused = false;
               this.banjoRepliedToUser = false;
               this.banjoAskedSinceThem = false;
@@ -604,6 +640,8 @@ export class CallSession<TCtx = CallContext> {
             break;
           }
           if (event.role === 'user') this.considerFirstLine(event.text);
+          // Their transcript can finalize after Banjo's reply has started.
+          if (event.role === 'user') this.cutNarrationIfDue();
         }
         // A finalized USER turn is exactly the moment the model is expected
         // to start responding (via OpenAI's server-side VAD auto-response,
@@ -646,6 +684,7 @@ export class CallSession<TCtx = CallContext> {
         this.opts.telephony.interrupt(this.opts.callId);
         this.audioPlaybackTracker.reset();
         this.turnAudioMs = 0;
+        this.assistantPartial = '';
         break;
       case 'error':
         // Caught live (2026-09-01, callId d38b79ab): the silence watchdog's
@@ -676,6 +715,8 @@ export class CallSession<TCtx = CallContext> {
         this.responseActive = false;
         if (this.recordingState === 'awaiting_turn_end') this.scheduleRecordingStart();
         this.turnAudioMs = 0;
+        this.assistantPartial = '';
+        this.endCutTurn();
         this.lastTurnEndVerbatim = event.verbatim === true;
         this.turnEndWaiters.splice(0).forEach((resolve) => resolve());
         this.armQuietAfterQuestionTimer();
@@ -962,7 +1003,7 @@ export class CallSession<TCtx = CallContext> {
       // Not on a provider whose own transcripts arrive late: there, silence
       // can't be told from a line not yet transcribed.
       const silentSinceThem = this.saidNothingSinceThem();
-      if (tool.requiresGoodbye && this.canRefuseEnd() && silentSinceThem && !isSigningOff(this.lastUserLine)) {
+      if (tool.requiresGoodbye && this.canRefuseEnd() && silentSinceThem && !isSigningOff(this.lastUserLine) && !this.cutSinceThem) {
         this.endRefused = true;
         this.endRefusals++;
         logger.warn({ callId: this.opts.callId, toolCallId, name }, 'Refusing a call-ending tool once: Banjo has not replied to them');
@@ -998,7 +1039,9 @@ export class CallSession<TCtx = CallContext> {
         this.canRefuseEnd() &&
         this.lastSpeaker === 'assistant' &&
         !saidGoodbye(this.lastAssistantLine) &&
-        !isSigningOff(this.lastUserLine)
+        !isSigningOff(this.lastUserLine) &&
+        // #154: a cut line is followed straight away by the fixed goodbye below.
+        !this.cutSinceThem
       ) {
         this.endRefused = true;
         this.endRefusals++;
@@ -1393,6 +1436,52 @@ export class CallSession<TCtx = CallContext> {
   }
 
   /** They've said something (not suspect, #25) and Banjo hasn't said a word since (#167). */
+  /**
+   * #154: cuts Banjo's line off once it narrates ending the call, when the
+   * call is ending: they've signed off or said they have to go. Mid-call a
+   * line like "we can wrap up the details Monday" is left alone. Only on a
+   * provider whose transcript runs ahead of its audio, and never during a
+   * forced line (a voicemail message, the fixed goodbye) or a hold.
+   */
+  private cutNarrationIfDue(): void {
+    if (this.narrationCut || !this.voiceAI.transcriptLeadsAudio || this.verbatimDelivery || this.hold) return;
+    if (!this.assistantPartial || !narratesEnding(this.assistantPartial)) return;
+    if (!isSigningOff(this.lastUserLine) && !isLeaving(this.lastUserLine)) return;
+    this.narrationCut = { toolCalled: false, finalSeen: false };
+    this.cutSinceThem = true;
+    // Flushes what's queued on the phone, as on a barge-in; only what had already played was heard.
+    this.opts.telephony.interrupt(this.opts.callId);
+    this.audioPlaybackTracker.reset();
+    this.turnAudioMs = 0;
+    logger.warn(
+      { callId: this.opts.callId, ...(config.LOG_TRANSCRIPTS && { text: this.assistantPartial }) },
+      'Cut off a line that narrated ending the call (#154)',
+    );
+  }
+
+  /**
+   * The final transcript of a cut line: `heard` is the part before the
+   * narration, an upper bound on what played, and what the ending checks
+   * judge; `record` keeps the rest, marked, for the call's transcript.
+   */
+  private heardPartOfCutLine(text: string): { heard: string; record: string } | undefined {
+    if (!this.narrationCut || this.narrationCut.finalSeen) return undefined;
+    this.narrationCut.finalSeen = true;
+    const at = narrationStart(text);
+    const heard = (at >= 0 ? text.slice(0, at) : '').trim();
+    const rest = (at >= 0 ? text.slice(at) : text).trim();
+    return { heard, record: `${heard ? `${heard} ` : ''}[cut off, not heard: ${rest}]` };
+  }
+
+  /** The cut line's turn is over. With no tool after it to end the call, they've heard next to nothing: cue a goodbye. */
+  private endCutTurn(): void {
+    const cut = this.narrationCut;
+    this.narrationCut = null;
+    if (!cut || cut.toolCalled || this.isEnding() || this.hold || this.callEndingToolCallId !== null) return;
+    logger.warn({ callId: this.opts.callId }, 'A cut-off line ended no call — cueing a goodbye (#154)');
+    this.promptWithNote(CUT_LINE_CUE);
+  }
+
   private saidNothingSinceThem(): boolean {
     return this.lastUserLine !== '' && !this.banjoRepliedToUser;
   }

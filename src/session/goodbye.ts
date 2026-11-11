@@ -33,6 +33,42 @@ export function saidGoodbye(line: string): boolean {
 }
 
 /**
+ * Does the line describe ending the call, rather than just ending it? (#154)
+ *
+ * "Got it, I'll wrap this up warmly." and "let me just wrap this up with a
+ * polite sign-off" were heard on live calls before the #139 fixed goodbye.
+ * Narrower than DESCRIBES_ENDING: "That's all I need, thanks — bye!" is a
+ * real goodbye, not a narration. A line that also says goodbye still counts:
+ * the narration was heard either way.
+ */
+const NARRATES_ENDING =
+  /\b(wrap(ping)? (this |it |things |us )?up|close (this|it|things) out|(i'?ll|let me|let'?s) close (with|on)|end(ing)? (the|this) call|hang(ing)? up|finish(ing)? (this |it |things )?up|sign-?off)\b/i;
+
+export function narratesEnding(line: string): boolean {
+  return narrationStart(line) >= 0;
+}
+
+/** Where the narration in a line starts, or -1 if there is none. What comes before it is what was meant to be heard. */
+export function narrationStart(line: string): number {
+  const at = [NARRATES_ENDING.exec(line)?.index, TALKS_ABOUT_GOODBYE.exec(line)?.index].filter((i): i is number => i !== undefined);
+  return at.length ? Math.min(...at) : -1;
+}
+
+/**
+ * Does the other party say they have to go? (#154, #179) A live callee said
+ * she had to go because she was watching a show, and Banjo answered "let's
+ * wrap this up quickly so you can get back to your show." Not a done signal
+ * (isSigningOff), since the call may have been mid-topic, but the call is
+ * ending all the same.
+ */
+const LEAVING =
+  /\b((have|got|need) to|gotta|should) (go|run|get going|head out|hop off)\b|\bget(ting)? back to\b|\b(i'?m|we'?re) (busy|in the middle of)\b/i;
+
+export function isLeaving(line: string): boolean {
+  return LEAVING.test(line);
+}
+
+/**
  * Is the other party starting to say something, rather than signing off? (#133)
  *
  * Judges what they said while Banjo was ending the call: a goodbye or a short

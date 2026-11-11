@@ -153,6 +153,15 @@ export interface VoiceAIProvider {
    */
   readonly emitsInterruptions?: boolean;
   /**
+   * Optional; true for a provider whose streaming transcript of Banjo's own
+   * speech (non-final assistant 'transcript' events) arrives ahead of that
+   * speech's audio, so a line can be cut before the callee hears the rest of
+   * it (#154). Measured on openai 2026-11-10: a narrated word's text arrived
+   * 260-640 ms after the line's first audio, while the word sat 880-1470 ms
+   * into the audio. Absent means CallSession never cuts a line.
+   */
+  readonly transcriptLeadsAudio?: boolean;
+  /**
    * Optional; true for a provider that may hold a sayVerbatim() message until
    * another response is done (openai: a second response.create is rejected
    * while one is open, #177), and so marks the message's own turn_end with

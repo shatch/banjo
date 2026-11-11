@@ -167,11 +167,18 @@ export interface OpenAIRealtimeProviderOptions {
    * come in through sendUserText(). Never set on a real call.
    */
   textOnly?: boolean;
+  /**
+   * With textOnly: the caller still types, but replies are spoken (audio out,
+   * read back through their transcript), as on a call (#154). A narration
+   * heard on live calls never showed up in text-only evals.
+   */
+  spokenReplies?: boolean;
 }
 
 export class OpenAIRealtimeProvider implements VoiceAIProvider {
   readonly name = 'openai';
   private readonly textOnly: boolean;
+  private readonly spokenReplies: boolean;
   // Every response's tokens, out-of-band hold checks included (#188).
   private usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
 
@@ -215,6 +222,8 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
   private verbatim: { text: string; eventId?: string; responseId?: string; spoken: string[]; done: boolean } | undefined;
   private verbatimSeq = 0;
   readonly marksVerbatimTurns = true;
+  // #154: the output transcript streams ahead of the audio (see VoiceAIProvider.transcriptLeadsAudio).
+  readonly transcriptLeadsAudio = true;
   /** The rate we negotiated for output audio (session.audio.output.format.rate) — used to tag emitted audio_chunks correctly instead of assuming a fixed rate. */
   private outputSampleRate = 24000;
   /** A triggerResponse() that arrived before the socket opened: false for none, else its cue (undefined for none). */
@@ -233,6 +242,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
 
   constructor(options: OpenAIRealtimeProviderOptions = {}) {
     this.textOnly = options.textOnly ?? false;
+    this.spokenReplies = this.textOnly && (options.spokenReplies ?? false);
   }
 
   connect(sessionConfig: VoiceAISessionConfig): Promise<void> {
@@ -268,9 +278,11 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
                 type: 'realtime',
                 instructions: sessionConfig.instructions,
                 tools: toOpenAITools(sessionConfig.tools),
-                // Text-only mode sends no audio config at all.
+                // Text-only mode sends no audio input config; spoken replies add only audio output.
                 ...(this.textOnly
-                  ? { output_modalities: ['text'] }
+                  ? this.spokenReplies
+                    ? { output_modalities: ['audio'], audio: { output: { format: outputFormat, voice: sessionConfig.voice } } }
+                    : { output_modalities: ['text'] }
                   : {
                       audio: {
                         // `transcription` is a genuinely separate opt-in feature

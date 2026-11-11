@@ -7,7 +7,7 @@
 import { AI_WORD } from '../config/index.js';
 import { formatInZone, zonedTimeToUtcIso } from '../lib/timezone.js';
 import { checkDisclosure } from '../session/disclosure.js';
-import { saidGoodbye } from '../session/goodbye.js';
+import { narratesEnding, saidGoodbye } from '../session/goodbye.js';
 import type { RunRecord } from './runRecord.js';
 import { UNIVERSAL_CHECKS, type Scenario, type ToolExpectation } from './scenario.js';
 
@@ -53,6 +53,11 @@ function universal(record: RunRecord, check: (typeof UNIVERSAL_CHECKS)[number]):
       const after = record.lines.slice(lastTheirs + 1).filter((l) => l.role === 'assistant');
       const said = after.some((l) => saidGoodbye(l.text)) || (banjo.length > 0 && saidGoodbye(banjo.at(-1)!.text));
       return said ? pass(check) : fail(check, `no goodbye after their last line; Banjo's last: ${JSON.stringify(banjo.at(-1)?.text ?? '')}`);
+    }
+    case 'no_narrated_ending': {
+      // #154: "Got it, I'll wrap this up warmly." was heard before the fixed goodbye.
+      const narrated = banjo.find((l) => narratesEnding(l.text));
+      return narrated ? fail(check, `narrated: ${JSON.stringify(narrated.text)}`) : pass(check);
     }
   }
 }
