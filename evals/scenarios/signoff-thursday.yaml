@@ -1,0 +1,16 @@
+id: signoff-thursday
+title: A conversation call that settles a plan, then they say "we're good then"
+source: "#154: live conversation call 2026-10-22 narrated \"let me just wrap this up with a polite sign-off and a quick summary\" (paraphrased, fictional name)"
+task:
+  business: Pat
+  category: other
+  goal: Check with Pat that Thursday afternoon still works for walking Alex's dog, and thank them.
+  mode: conversation
+  relationshipTier: friend
+script:
+  - Hi, this is Pat.
+  - Yeah, Thursday afternoon is fine. Around 3?
+  - OK. That's great. All right, I think we're good then for Thursday.
+expect:
+  status: [conversation_completed]
+  answeredBy: [human, uncertain]

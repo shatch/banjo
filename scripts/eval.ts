@@ -34,6 +34,9 @@ Options:
   --save-baseline    Save this run's results as the baseline (evals/baseline.json) that
                      later runs are compared with. Not from a run stopped early.
   --verbose          Show each run's call as it happens.
+  --spoken           Banjo's replies are spoken (audio out, checked by their transcript), as on
+                     a call; the other party still types. Costs more: audio output is priced
+                     higher than the text rate the cost column uses.
   -h, --help         Show this.`;
 
 const RECORDINGS_DIR = 'evals/recordings';
@@ -46,6 +49,7 @@ async function main(): Promise<void> {
       record: { type: 'boolean', default: false },
       'save-baseline': { type: 'boolean', default: false },
       verbose: { type: 'boolean', default: false },
+      spoken: { type: 'boolean', default: false },
       help: { type: 'boolean', short: 'h', default: false },
     },
   });
@@ -93,6 +97,7 @@ async function main(): Promise<void> {
       const args = ['tsx', 'scripts/eval-run.ts', '--scenario', scenario.path, '--out', out, '--run', String(n)];
       if (values.record) args.push('--record', RECORDINGS_DIR);
       if (values.verbose) args.push('--verbose');
+      if (values.spoken) args.push('--spoken');
       const started = Date.now();
       const log = createWriteStream(join(dir, `${scenario.id}-${n}.log`));
       const child = spawn('npx', args, { stdio: ['ignore', 'pipe', 'pipe'] });

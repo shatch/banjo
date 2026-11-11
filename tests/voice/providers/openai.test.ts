@@ -450,7 +450,7 @@ describe('OpenAIRealtimeProvider.sendToolResult while another response is open',
 
 // The simulator (scripts/sim.ts, ROADMAP 4.5): same adapter, text in and out.
 describe('OpenAIRealtimeProvider: text-only mode', () => {
-  async function open(options?: { textOnly?: boolean }) {
+  async function open(options?: { textOnly?: boolean; spokenReplies?: boolean }) {
     const provider = new OpenAIRealtimeProvider(options);
     const connectPromise = provider.connect(sessionConfig);
     const ws = wsInstances[wsInstances.length - 1]!;
@@ -498,6 +498,22 @@ describe('OpenAIRealtimeProvider: text-only mode', () => {
       { type: 'response.create' },
     ]);
     expect(events).toEqual([{ type: 'transcript', role: 'user', text: 'Claudia’s, how can I help?', isFinal: true }]);
+  });
+
+  it('with spokenReplies, asks for spoken replies and only the audio output config (#154)', async () => {
+    const { session } = await open({ textOnly: true, spokenReplies: true });
+    expect(session.output_modalities).toEqual(['audio']);
+    expect(session.audio).toEqual({ output: { format: { type: 'audio/pcmu' }, voice: sessionConfig.voice } });
+  });
+
+  it('ignores spokenReplies on a real call', async () => {
+    const { session } = await open({ spokenReplies: true });
+    expect(session).not.toHaveProperty('output_modalities');
+    expect(session.audio.input).toBeDefined();
+  });
+
+  it('declares that its transcript runs ahead of its audio, so a narrated ending can be cut (#154)', () => {
+    expect(new OpenAIRealtimeProvider().transcriptLeadsAudio).toBe(true);
   });
 
   it('refuses sendUserText on a real call', async () => {

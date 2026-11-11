@@ -1,0 +1,16 @@
+id: signoff-all-set
+title: A short check-in where they sign off with "All set."
+source: "#154: live conversation call 2026-11-02 ended \"Got it, I'll wrap this up warmly.\" (paraphrased, fictional name)"
+task:
+  business: Sam
+  category: other
+  goal: Check in with Sam to make sure they have everything they need for the weekend, and say a warm goodbye.
+  mode: conversation
+  relationshipTier: friend
+script:
+  - Hello?
+  - Mostly. I still need to pick up dog food, but I'll do that tomorrow morning.
+  - All set.
+expect:
+  status: [conversation_completed]
+  answeredBy: [human, uncertain]

@@ -2539,7 +2539,7 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
     await session.start();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const callTool = (id: string) => (session as any).handleToolCall(id, 'end_conversation_call', {}) as Promise<void>;
-    return { handler, callTool };
+    return { handler, callTool, telephony: telephony.provider, options };
   }
 
   async function endTurnAndSettle(pending: Promise<void>) {
@@ -3022,6 +3022,106 @@ describe('CallSession: a call-ending tool needs a spoken goodbye first (#102)', 
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(fakeVoiceAI.sayVerbatim).not.toHaveBeenCalled();
+  });
+
+  describe('a line that narrates ending the call is cut off (#154)', () => {
+    // Live calls (2026-10-12 to 2026-11-02): after "All set." Banjo said
+    // "Got it, I'll wrap this up warmly." before the #139 fixed goodbye. The
+    // streaming transcript runs ahead of the audio, so the rest is never played.
+    const partial = (text: string) =>
+      voiceAIEmitter.emit('event', { type: 'transcript', role: 'assistant', text, isFinal: false } satisfies VoiceAIEvent);
+    const audio = (ms: number) =>
+      voiceAIEmitter.emit('event', { type: 'audio_chunk', chunk: { data: Buffer.alloc(ms * 8), sampleRate: 8000 } } satisfies VoiceAIEvent);
+
+    beforeEach(() => {
+      Object.assign(fakeVoiceAI, { transcriptLeadsAudio: true });
+    });
+    afterEach(() => {
+      delete (fakeVoiceAI as { transcriptLeadsAudio?: boolean }).transcriptLeadsAudio;
+    });
+
+    it('stops the line once it narrates, then says the fixed goodbye and ends the call', async () => {
+      const { handler, callTool, telephony, options } = await startWithEndTool();
+      say('user', 'All set.');
+      partial('Got it, ');
+      audio(200);
+      expect(telephony.sendAudio).toHaveBeenCalledTimes(1);
+      partial("I'll wrap this up");
+      expect(telephony.interrupt).toHaveBeenCalledWith(callAttempt.id);
+      audio(200);
+      partial(' warmly.');
+      audio(200);
+      expect(telephony.sendAudio).toHaveBeenCalledTimes(1);
+      say('assistant', "Got it, I'll wrap this up warmly.");
+      await endTurnThenFallbackGoodbye(callTool('call-1'));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalled();
+      expect(options.onTranscript).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'assistant', text: "Got it, I'll [cut off, not heard: wrap this up warmly.]" }),
+      );
+    });
+
+    it('cuts it when they said they have to go, and ends with no refusal', async () => {
+      // Live call (2026-10-15): she had to go back to her show.
+      const { handler, callTool, telephony } = await startWithEndTool();
+      say('user', "Sorry, I have to go, I'm watching my show.");
+      partial("Okay, got it—let's wrap this up quickly so you can get back to your show.");
+      expect(telephony.interrupt).toHaveBeenCalledTimes(1);
+      say('assistant', "Okay, got it—let's wrap this up quickly so you can get back to your show.");
+      await endTurnThenFallbackGoodbye(callTool('call-1'));
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(fakeVoiceAI.sendToolResult).not.toHaveBeenCalledWith('call-1', expect.objectContaining({ ok: false }), true);
+    });
+
+    it('cuts it once their line arrives, when their transcript lands after the reply has started', async () => {
+      const { telephony } = await startWithEndTool();
+      say('user', 'Okay.');
+      partial("Sounds good—let me just wrap this up with a polite sign-off");
+      expect(telephony.interrupt).not.toHaveBeenCalled();
+      say('user', "I think we're good then for Thursday.");
+      expect(telephony.interrupt).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves a mid-call line alone', async () => {
+      const { telephony } = await startWithEndTool();
+      say('user', 'Can we do Thursday instead?');
+      partial('Sure, we can wrap up the details on Thursday.');
+      audio(200);
+      expect(telephony.interrupt).not.toHaveBeenCalled();
+      expect(telephony.sendAudio).toHaveBeenCalledTimes(1);
+    });
+
+    it('never cuts on a provider whose transcript does not lead its audio', async () => {
+      delete (fakeVoiceAI as { transcriptLeadsAudio?: boolean }).transcriptLeadsAudio;
+      const { telephony } = await startWithEndTool();
+      say('user', 'All set.');
+      partial("Got it, I'll wrap this up warmly.");
+      audio(200);
+      expect(telephony.interrupt).not.toHaveBeenCalled();
+      expect(telephony.sendAudio).toHaveBeenCalledTimes(1);
+    });
+
+    it('cues a goodbye when no tool follows the cut line to end the call', async () => {
+      await startWithEndTool();
+      say('user', "No, that's all right. That's good enough. It's been helpful.");
+      partial("Okay, I'm glad that helped. Let me wrap up with a quick note.");
+      say('assistant', "Okay, I'm glad that helped. Let me wrap up with a quick note.");
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledWith(expect.stringMatching(/did not hear your last line.*goodbye/i));
+    });
+
+    it('plays the next line again once the cut line is over', async () => {
+      const { telephony } = await startWithEndTool();
+      say('user', 'All set.');
+      partial("I'll wrap this up.");
+      say('assistant', "I'll wrap this up.");
+      voiceAIEmitter.emit('event', { type: 'turn_end' } satisfies VoiceAIEvent);
+      audio(200);
+      expect(telephony.sendAudio).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

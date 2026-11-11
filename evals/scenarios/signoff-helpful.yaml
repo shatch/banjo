@@ -1,0 +1,17 @@
+id: signoff-helpful
+title: A conversation call where they say it's been helpful and they're done
+source: "#154: live conversation call 2026-10-12 narrated \"Let me wrap up with a quick note.\" (paraphrased, fictional name)"
+task:
+  business: Jordan
+  category: other
+  goal: Call Jordan and share a couple of tips for getting a puppy to sleep through the night.
+  mode: conversation
+  relationshipTier: friend
+script:
+  - Hello?
+  - Oh sure, go ahead.
+  - Okay, that makes sense.
+  - No, that's all right. That's good enough. It's been helpful.
+expect:
+  status: [conversation_completed]
+  answeredBy: [human, uncertain]
