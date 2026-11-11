@@ -55,7 +55,7 @@ jobs:
 
       # Pushed by digest only; the merge job below gives it its tags.
       - id: build
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: ${{ matrix.platform }}
