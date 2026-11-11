@@ -242,8 +242,9 @@ describe('buildOutboundCallSessionOptions', () => {
     await options.onStatusChange({ kind: 'ended', reason: 'stop', disclosure: 'disclosed' });
 
     expect(getTask).toHaveBeenCalledWith('task-1');
+    // #251: in plain words, not the raw 'stop'.
     expect(transitionTask).toHaveBeenCalledWith('task-1', 'failed', {
-      outcome: { kind: 'failed', reason: 'stop' },
+      outcome: { kind: 'failed', reason: expect.stringMatching(/^The line ended before Banjo finished the call.*\(Line event: stop\.\)$/) },
     });
   });
 
@@ -268,7 +269,9 @@ describe('buildOutboundCallSessionOptions', () => {
       await options.onStatusChange({ kind: 'ended', reason: 'stop', disclosure: 'disclosed', theirReplies, ...(stopped ? { stopped: true } : {}) });
 
       if (status === 'failed') {
-        expect(transitionTask).toHaveBeenCalledWith('task-1', 'failed', { outcome: { kind: 'failed', reason: 'stop' } });
+        // A call the owner stopped keeps its reason as given (#148 review r2).
+        const reason = stopped ? 'stop' : expect.stringContaining('The line ended before Banjo finished the call');
+        expect(transitionTask).toHaveBeenCalledWith('task-1', 'failed', { outcome: { kind: 'failed', reason } });
       } else {
         expect(transitionTask).toHaveBeenCalledWith('task-1', 'conversation_completed', {
           outcome: { kind: 'conversation_completed', summary: expect.stringContaining('ended before Banjo said goodbye') },

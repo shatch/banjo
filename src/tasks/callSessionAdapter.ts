@@ -21,6 +21,7 @@ import {
   reportAnswersAndEndCallTool,
   waitOnHoldTool,
 } from '../voice/tools/callTools.js';
+import { endedEarlyReason } from './endedReason.js';
 import { modeRules } from './modes.js';
 import { askOwnerTool } from '../ownerQuestions/tool.js';
 import { canAskOwner, canWaitOnHold } from '../voice/systemPrompt.js';
@@ -205,15 +206,21 @@ export function buildOutboundCallSessionOptions(params: {
   // and a conversation they'd replied in 'conversation_completed' (#179).
   async function failTaskIfStillNonTerminal(
     reason: string,
-    { endedOnItsOwn, theirReplies = 0 }: { endedOnItsOwn: boolean; theirReplies?: number },
+    {
+      endedOnItsOwn,
+      theirReplies: reportedReplies,
+      disclosure = 'disclosed',
+    }: { endedOnItsOwn: boolean; theirReplies?: number; disclosure?: DisclosureResult },
   ): Promise<void> {
+    const theirReplies = reportedReplies ?? 0;
     const current = await getTask(task.id);
     if (current && !isTerminalStatus(current.status)) {
       // A call the owner stopped, or whose session failed, keeps its reason:
       // stop_call promises "recorded as failed with that reason" (#148 review r2).
       const unfinished = endedOnItsOwn ? modeRules(current).unfinishedCallOutcome(current, { theirReplies }) : undefined;
       if (unfinished) await transitionTask(task.id, unfinished.status, { outcome: unfinished.outcome });
-      else await transitionTask(task.id, 'failed', { outcome: { kind: 'failed', reason } });
+      // #251: a raw event ('stop') told the owner and the agent nothing; a reason given by the owner is kept.
+      else await transitionTask(task.id, 'failed', { outcome: { kind: 'failed', reason: endedOnItsOwn ? endedEarlyReason(reason, disclosure, reportedReplies) : reason } });
     }
   }
 
@@ -324,7 +331,7 @@ export function buildOutboundCallSessionOptions(params: {
           unregisterLiveCall(task.id);
           disclosure = recordDisclosure(patch.disclosure);
           await updateCallAttempt(callAttempt.id, { status: 'ended', endedAt: new Date(), disclosed: disclosedColumn(patch.disclosure) });
-          await failTaskIfStillNonTerminal(patch.reason, { endedOnItsOwn: !patch.stopped, theirReplies: patch.theirReplies });
+          await failTaskIfStillNonTerminal(patch.reason, { endedOnItsOwn: !patch.stopped, theirReplies: patch.theirReplies, disclosure: patch.disclosure });
           break;
         case 'failed':
           unregisterLiveCall(task.id);

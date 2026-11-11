@@ -3241,3 +3241,130 @@ describe('CallSession: a question of Banjo met with silence (#179)', () => {
     );
   });
 });
+
+describe('CallSession: Banjo left silent after record_answer (#251)', () => {
+  // An eval run (2026-11-10) went silent for good after "Yep, that's right.":
+  // record_answer's turn said nothing, and nothing followed its result.
+  beforeEach(() => {
+    voiceAIEmitter.removeAllListeners('event');
+  });
+
+  const emit = (e: VoiceAIEvent) => voiceAIEmitter.emit('event', e);
+  const say = (role: 'user' | 'assistant', text: string) => emit({ type: 'transcript', role, text, isFinal: true });
+
+  async function startWithRecordAnswer() {
+    const telephony = makeFakeTelephony();
+    const options = makeFakeCallSessionOptions(telephony.provider);
+    options.tools = [
+      { name: 'record_answer', description: 'test', schema: z.object({}), handler: vi.fn(async () => ({ ok: true })), replyOnlyIfSilent: true },
+    ];
+    await new CallSession(options).start();
+    say('user', "Claudia's, this is Dana.");
+    say('assistant', "Hi, I'm an AI assistant calling for Alex. What time do you close on Saturdays?");
+    emit({ type: 'turn_end' });
+    say('user', 'We close at 4.');
+    say('assistant', 'You close at 4 on Saturdays, got it.');
+    emit({ type: 'turn_end' });
+    vi.mocked(fakeVoiceAI.triggerResponse).mockClear();
+  }
+
+  /** The model calls record_answer, saying `line` (or nothing) in the same turn. */
+  async function recordAnswerTurn(line?: string) {
+    if (line) say('assistant', line);
+    emit({ type: 'tool_call', call: { id: 'call-ra', name: 'record_answer', arguments: {} } });
+    emit({ type: 'turn_end' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fakeVoiceAI.sendToolResult).toHaveBeenCalledWith('call-ra', { ok: true }, false, { respond: 'if-silent' });
+  }
+
+  it('nudges when the turn after their line ends with nothing said', async () => {
+    vi.useFakeTimers();
+    try {
+      await startWithRecordAnswer();
+      say('user', "Yep, that's right.");
+      await recordAnswerTurn();
+      // The reply the provider prompts comes back empty.
+      emit({ type: 'turn_end' });
+      await vi.advanceTimersByTimeAsync(7000); // SILENCE_WATCHDOG_MS
+
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('nudges at most twice for empty turns since their line', async () => {
+    vi.useFakeTimers();
+    try {
+      await startWithRecordAnswer();
+      say('user', "Yep, that's right.");
+      await recordAnswerTurn();
+      const emptyTurns = async (n: number) => {
+        for (let i = 0; i < n; i++) {
+          emit({ type: 'turn_end' });
+          await vi.advanceTimersByTimeAsync(7000);
+        }
+      };
+      await emptyTurns(4);
+      const nudges = vi.mocked(fakeVoiceAI.triggerResponse).mock.calls.length;
+      expect(nudges).toBeGreaterThanOrEqual(1);
+      expect(nudges).toBeLessThanOrEqual(2);
+      await emptyTurns(10);
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(nudges);
+
+      // A new line of theirs starts the count again.
+      say('user', 'Hello?');
+      emit({ type: 'turn_end' });
+      await vi.advanceTimersByTimeAsync(7000);
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledTimes(nudges + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cues Banjo to carry on after a filler line, once they have been quiet a few seconds', async () => {
+    vi.useFakeTimers();
+    try {
+      await startWithRecordAnswer();
+      say('user', "Yep, that's right.");
+      await recordAnswerTurn('Great, one sec.');
+      await vi.advanceTimersByTimeAsync(3900);
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(fakeVoiceAI.triggerResponse).toHaveBeenCalledWith(expect.stringMatching(/waiting for you.*next question/i));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("doesn't cue when they answer the line in time, so a read-back still gets its \"Yep\"", async () => {
+    vi.useFakeTimers();
+    try {
+      await startWithRecordAnswer();
+      say('user', 'Walk-ins on weekdays only.');
+      await recordAnswerTurn('Walk-ins on weekdays only, got it.');
+      await vi.advanceTimersByTimeAsync(1500);
+      say('user', 'Yep.');
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalledWith(expect.stringMatching(/waiting for you/i));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("doesn't cue after a line that asked them something", async () => {
+    vi.useFakeTimers();
+    try {
+      await startWithRecordAnswer();
+      say('user', "Yep, that's right.");
+      await recordAnswerTurn('Great. Do you take walk-ins?');
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
