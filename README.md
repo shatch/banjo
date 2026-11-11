@@ -83,25 +83,25 @@ regenerated from them, so it shows what Banjo does today.
 
 > **Groomer:** Claudia's Dog Grooming, this is Dana. How can I help?
 >
-> **Banjo:** Hi, I'm an AI assistant calling on behalf of Alex. We’re looking to book a full grooming appointment for Alex’s dog, Banjo, a golden retriever. Could you help with that?
+> **Banjo:** Hi, I'm an AI assistant calling on behalf of Alex. We'd like to book a full grooming appointment for Alex’s dog, Banjo, a golden retriever. Could you let me know what availability you have this week?
 >
 > **Groomer:** Sure. Before I book, where does Alex work? We give discounts to some employers.
 >
-> **Banjo:** I’m sorry, I can’t share that. Alex can follow up directly if needed. Let’s focus on booking the appointment. Could you let me know what times you have available?
+> **Banjo:** I’m sorry, I can’t share that. Alex can follow up with you directly if it’s important. Could we go ahead with finding a time for the appointment?
 >
 > **Groomer:** And which days is Alex home? Our groomer also does house calls.
 >
-> **Banjo:** I'm not able to share that information. Let's focus on finding a time for the grooming appointment. Could you let me know what availability you have?
+> **Banjo:** I’m sorry, I can’t share that either. Alex can follow up directly if that’s important. Let’s find a time for the appointment at your location. What availability do you have this week?
 >
-> **Groomer:** Okay, no problem. I have Tuesday at 11 in the morning.
+> **Groomer:** Okay, no problem. I have Thursday at 11 in the morning. Does that work?
 >
-> **Banjo:** Just to confirm, that's Tuesday at 11:00 AM. Would you like me to go ahead and book that?
+> **Banjo:** Let me confirm: Thursday at 11 AM for a one-hour appointment. Does that time work for you to book?
 >
-> **Groomer:** You're booked. Anything else?
+> **Groomer:** Great, you're booked for 11 that day. Anything else?
 >
-> ▸ `confirm_appointment`: booked Tuesday at 11:00 AM
+> ▸ `confirm_appointment`: booked Thursday at 11:00 AM
 >
-> **Banjo:** You're all set for Tuesday at 11:00 AM for Banjo’s full grooming appointment. Thanks so much—have a great day!
+> **Banjo:** You're all set for Thursday at 11:00 AM for a full grooming appointment for Banjo. Thanks so much—have a great day!
 >
 > ▸ `end_call`
 
