@@ -254,7 +254,9 @@ What `get_task_status` returns:
   call records whether it was said.
 - **Records only with notice.** Recording is optional (`RECORD_CALLS`), and starts only after Banjo has
   said the recording notice.
-- **Won't pester anyone.** At most 3 calls to any number in a rolling 24 hours, with no override.
+- **Won't pester anyone.** At most 3 calls to any number in a rolling 24 hours by default. You can go past
+  that only for yourself or family, up to twice the limit, and only with the owner key. Support lines you
+  list in `CALL_CAP_BUSINESS_NUMBERS` get their own higher limit (default 10, at most 20).
 - **Keeps what you choose.** Transcripts are saved only if you turn them on (`PERSIST_TRANSCRIPTS`),
   and both transcripts and recordings are deleted after 30 days by default. Logs mask phone numbers
   and call content.
