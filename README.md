@@ -8,6 +8,12 @@ up, negotiates a time against your calendar, and books it.
 
 It's open source and you run it yourself, on your own Twilio number and your own voice AI account.
 Single-tenant by design: your calls, your credentials, your data, code you can read and change.
+(Would rather not run it yourself? There's no hosted version, but
+[say so here](https://github.com/shatch/banjo/issues/269) if you'd use one.)
+
+It leaves voicemails, gets through phone menus and waits on hold. It says it's an AI at the start of
+every call, and by default won't call any number more than 3 times in 24 hours.
+[What it does](#what-it-does) has the full list.
 
 Banjo is the phone half of a pair. The other half is a Claude Code skill
 ([`skills/schedule-appointment/`](skills/schedule-appointment/SKILL.md)) that decides whether an errand can
@@ -16,7 +22,24 @@ be done online — and only picks up the phone when it can't.
 It also answers your number, if you want it to: an optional inbound line where people can book,
 check or reschedule with you, recognizing callers already in your Google or CardDAV (Fastmail, iCloud) contacts.
 
+## Try it in two minutes
+
+With Docker and an OpenAI API key, and nothing else: no Twilio account, no phone number, no `.env`.
+
+```bash
+git clone https://github.com/shatch/banjo && cd banjo
+OPENAI_API_KEY=sk-... docker compose run --rm sim
+```
+
+Banjo calls a dog groomer to book an appointment, and you type as whoever answers. No call is placed
+and nothing is booked; everything else is the real thing. A call costs roughly 5 to 15 cents of OpenAI
+usage. [More about the simulator](#try-it-without-a-phone), or go to the [Quickstart](#quickstart)
+for real calls.
+
 ## Hear it
+
+<!-- demo: when the new recording (a menu, a hold queue, a hand-off) is ready, it goes here, above the early call. -->
+
 
 https://github.com/user-attachments/assets/c599a672-8d4e-46f9-8868-64e0840c589b
 
@@ -350,19 +373,18 @@ yours.
 
 ## Try it without a phone
 
-One command, with Docker and an OpenAI API key. No Twilio account, no phone number, no `.env`:
+The simulator runs a call in your terminal: Banjo calls a business, and you type as whoever answers.
+With Docker and an OpenAI API key:
 
 ```bash
-git clone https://github.com/shatch/banjo && cd banjo
 OPENAI_API_KEY=sk-... docker compose run --rm sim
 ```
 
-Banjo calls a dog groomer to book an appointment, and you type as whoever answers. Try being
-unhelpful: offer a time, change your mind, ask where its owner works.
+Try being unhelpful: offer a time, change your mind, ask where its owner works.
 
 It's the real thing apart from the phone line: the same system prompt, tools and call handling, and the
 same task records in Postgres. No call is placed, no calendar is written (bookings go to a pretend
-calendar that's free 9 to 6), and nobody is notified. A call costs roughly 5 to 15 cents of OpenAI usage.
+calendar that's free 9 to 6), and nobody is notified.
 
 Options go on the end (`docker compose run --rm sim --mode ask`, or `--help` for all of them). From a
 checkout with Node installed, `npm run sim` is the same thing:
