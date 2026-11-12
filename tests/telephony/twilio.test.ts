@@ -1119,3 +1119,212 @@ describe('TwilioProvider.stopRecording (#151)', () => {
     expect(update.mock.calls).toEqual([['RE-other', { status: 'stopped' }]]);
   });
 });
+
+describe('TwilioProvider.sendDigits: a repeated press goes out as a real key press (#225)', () => {
+  // Twilio's <Gather> doesn't hear key tones that arrive as audio; it does
+  // take <Play digits>. A menu that ignored the tones gets pressed again, and
+  // that second press is sent as a real one, on a call redirect that plays
+  // the digits and then reconnects the media stream.
+  function liveSocket() {
+    const ws = fakeWebSocket();
+    const sent: Record<string, any>[] = [];
+    return Object.assign(ws, { readyState: 1, send: (raw: string) => sent.push(JSON.parse(raw)), sent });
+  }
+
+  async function callWithStream(update = vi.fn(async () => ({}))) {
+    const provider = await providerWithPlacedCall('call-1', 'CA123');
+    const calls = Object.assign(
+      vi.fn(() => ({ update })),
+      { create: vi.fn() },
+    );
+    Object.defineProperty((provider as any).client, 'calls', { value: calls, configurable: true });
+    const ws = liveSocket();
+    provider.handleMediaStreamConnection(ws as never);
+    ws.emitMessage({ event: 'start', start: { streamSid: 'MZ1', callSid: 'CA123', customParameters: { callId: 'call-1', streamToken: outboundToken(provider, 'call-1') } } });
+    const events: TelephonyEvent[] = [];
+    provider.on('event', (e) => events.push(e));
+    return { provider, ws, update, calls, events };
+  }
+
+  /** Runs sendDigits to completion under fake timers. */
+  async function press(provider: TwilioProvider, digits: string): Promise<void> {
+    const done = provider.sendDigits('call-1', digits);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await done;
+  }
+
+  const redirectTwiml = (update: ReturnType<typeof vi.fn>, n = 0) => (update.mock.calls[n] as unknown as [{ twiml: string }])[0].twiml;
+
+  /** Twilio ends the old stream and opens a new one, as it does after the redirect. */
+  function reconnect(provider: TwilioProvider, oldWs: ReturnType<typeof liveSocket>, twiml: string) {
+    oldWs.emitMessage({ event: 'stop' });
+    oldWs.emitClose();
+    const ws = liveSocket();
+    provider.handleMediaStreamConnection(ws as never);
+    ws.emitMessage({ event: 'start', start: { streamSid: 'MZ2', callSid: 'CA123', customParameters: { callId: 'call-1', streamToken: tokenIn(twiml) } } });
+    return ws;
+  }
+
+  it('sends the first press as tones on the stream, with no redirect', async () => {
+    vi.useFakeTimers();
+    try {
+      const { provider, ws, update } = await callWithStream();
+
+      await press(provider, '1');
+
+      expect(ws.sent.filter((m) => m.event === 'media')).toHaveLength(2); // the tone, then the gap
+      expect(update).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends the same digits pressed again as <Play digits>, then reconnects the stream with a fresh token', async () => {
+    vi.useFakeTimers();
+    try {
+      const { provider, ws, update, calls, events } = await callWithStream();
+      await press(provider, '1');
+      ws.sent.length = 0;
+
+      const pressed = provider.sendDigits('call-1', '1');
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(calls).toHaveBeenCalledWith('CA123');
+      const twiml = redirectTwiml(update);
+      expect(twiml).toMatch(/<Response><Play digits="1"\s*\/><Connect><Stream url="wss:\/\/[^"]+\/telephony\/twilio\/stream">/);
+      expect(twiml).toContain('<Parameter name="callId" value="call-1" />');
+      expect(ws.sent).toEqual([]); // no tones this time
+
+      const ws2 = reconnect(provider, ws, twiml);
+      await pressed;
+
+      // The call never ended and never "connected" a second time.
+      expect(events).toEqual([]);
+      expect(provider.isAnyCallActive()).toBe(true);
+      provider.sendAudio('call-1', { data: Buffer.from([1, 2, 3]), sampleRate: 8000 });
+      expect(ws2.sent).toEqual([{ event: 'media', streamSid: 'MZ2', media: { payload: Buffer.from([1, 2, 3]).toString('base64') } }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for the stream to come back before the press is done', async () => {
+    vi.useFakeTimers();
+    try {
+      const { provider, ws, update } = await callWithStream();
+      await press(provider, '1');
+
+      let done = false;
+      const pressed = provider.sendDigits('call-1', '1').then(() => (done = true));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(done).toBe(false);
+
+      reconnect(provider, ws, redirectTwiml(update));
+      await pressed;
+      expect(done).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses a stream that doesn't carry the redirect's token", async () => {
+    vi.useFakeTimers();
+    try {
+      const { provider, ws, events } = await callWithStream();
+      await press(provider, '1');
+      void provider.sendDigits('call-1', '1');
+      await vi.advanceTimersByTimeAsync(0);
+      ws.emitMessage({ event: 'stop' });
+
+      const intruder = liveSocket();
+      provider.handleMediaStreamConnection(intruder as never);
+      intruder.emitMessage({ event: 'start', start: { streamSid: 'MZ-x', callSid: 'CA123', customParameters: { callId: 'call-1', streamToken: 'guess' } } });
+
+      expect(intruder.closed).toBe(true);
+      expect(events).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends the call if the stream never comes back', async () => {
+    vi.useFakeTimers();
+    try {
+      const { provider, ws, events } = await callWithStream();
+      await press(provider, '1');
+
+      const pressed = provider.sendDigits('call-1', '1');
+      await vi.advanceTimersByTimeAsync(0);
+      ws.emitMessage({ event: 'stop' });
+      ws.emitClose();
+      expect(events).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await pressed;
+
+      expect(events).toEqual([{ callId: 'call-1', type: 'ended', reason: 'socket_closed' }]);
+      expect(provider.isAnyCallActive()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('falls back to tones when the redirect fails, and the call carries on', async () => {
+    vi.useFakeTimers();
+    try {
+      const update = vi.fn(async () => {
+        throw new Error('twilio 500');
+      });
+      const { provider, ws, events } = await callWithStream(update);
+      await press(provider, '1');
+      ws.sent.length = 0;
+
+      await press(provider, '1');
+
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(ws.sent.filter((m) => m.event === 'media')).toHaveLength(2);
+      // The old stream is still the call's: its stop ends the call as usual.
+      ws.emitMessage({ event: 'stop' });
+      expect(events).toEqual([{ callId: 'call-1', type: 'ended', reason: 'stop' }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('sends different digits, or the same ones long after, as tones', async () => {
+    vi.useFakeTimers();
+    try {
+      const { provider, update } = await callWithStream();
+      await press(provider, '1');
+      await press(provider, '3');
+      await vi.advanceTimersByTimeAsync(120_000);
+      await press(provider, '3');
+
+      expect(update).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("an old stream's socket closing late doesn't end a call that has a new stream", async () => {
+    vi.useFakeTimers();
+    try {
+      const { provider, ws, update, events } = await callWithStream();
+      await press(provider, '1');
+      const pressed = provider.sendDigits('call-1', '1');
+      await vi.advanceTimersByTimeAsync(0);
+      ws.emitMessage({ event: 'stop' });
+      const ws2 = liveSocket();
+      provider.handleMediaStreamConnection(ws2 as never);
+      ws2.emitMessage({ event: 'start', start: { streamSid: 'MZ2', callSid: 'CA123', customParameters: { callId: 'call-1', streamToken: tokenIn(redirectTwiml(update)) } } });
+      await pressed;
+
+      ws.emitClose();
+
+      expect(events).toEqual([]);
+      expect(provider.isAnyCallActive()).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

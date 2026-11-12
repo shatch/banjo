@@ -366,6 +366,7 @@ phone:
 | --- | --- | --- |
 | `voicemail` | A greeting, then `<Record>` with its beep | `voicemail_left`; the recording opens with the AI disclosure, said once |
 | `ivr` | A menu with a Spanish option first (#204), taking a key or speech | Chose 1, by key press; never 2; opened to the person with the disclosure |
+| `ivr-keys` | The same menu, taking keys only (#225): saying the option or sending tones as audio does nothing | The same checks; passes only if a real key press reaches the menu |
 | `hold` | "Can you hold?", hold messages, then a person who answers the question | Opened to the person with the disclosure; recorded `answered` |
 
 **Setup, once.** Buy a number in the Twilio console or API (about $1.15 a month), then set in `.env`:
@@ -373,7 +374,7 @@ phone:
 `FIXTURE_FUNCTIONS_DOMAIN` it prints. Never commit the number. Deploy again after changing a fixture.
 
 **A run.** Set `BANJO_MCP_URL` (the Banjo under test, ending `/mcp`) and `BANJO_MCP_KEY` (its
-`MCP_API_KEY`), then `npm run fixtures:call -- voicemail` (or `ivr`, `hold`). It points the number at
+`MCP_API_KEY`), then `npm run fixtures:call -- voicemail` (or `ivr`, `ivr-keys`, `hold`). It points the number at
 that fixture, has Banjo call it through `place_call`, waits for the outcome, transcribes what the
 fixture recorded with OpenAI, deletes the recordings, and prints each check. It exits non-zero on a
 failure. Each run is a real call from Banjo: it counts against the per-number cap (3 in 24 hours), so
