@@ -113,7 +113,7 @@ async function main(): Promise<void> {
   const transfer = values.transfer || values.warm;
   const askOwner = values['ask-owner'];
   Object.assign(process.env, simEnv(process.env, { transfer, warm: values.warm, askOwner: askOwner !== undefined, verbose: values.verbose }));
-  if (!process.env.OPENAI_API_KEY) fail('OPENAI_API_KEY is not set. Add it to .env or the environment: the sim talks to OpenAI Realtime.');
+  if (!process.env.OPENAI_API_KEY) fail(`OPENAI_API_KEY is not set: the sim talks to OpenAI Realtime. Put it in front of the command, as in: OPENAI_API_KEY=sk-... ${COMMAND.replace(/ --$/, '')}  (or add it to .env).`);
 
   await ensureSimDatabase(process.env.DATABASE_URL!).catch((err: Error) => fail(err.message));
   const { runMigrations } = await import('../db/migrate.js');
@@ -158,6 +158,9 @@ async function main(): Promise<void> {
     throw err;
   });
   process.on('SIGINT', () => call.telephony.calleeHangsUp());
+  // In a terminal readline takes Ctrl+C itself and, with no listener, only pauses input: the
+  // run then sat there, deaf, until it was killed.
+  rl.on('SIGINT', () => call.telephony.calleeHangsUp());
 
   const voice = await call.ready;
   if (voice) {
@@ -185,6 +188,8 @@ async function main(): Promise<void> {
 
   const task = await call.finished;
   rl.close();
+  // Clears the leftover prompt and anything half-typed when the call ended.
+  if (interactive) process.stdout.write('\r\x1b[2K');
   console.log('\n--- outcome ---');
   const { describeOutcome } = await import('./plain.js');
   console.log(describeOutcome(task.outcome, config.CALENDAR_TIMEZONE));

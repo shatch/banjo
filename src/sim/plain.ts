@@ -79,7 +79,7 @@ export function describeToolResult(name: string, result: unknown, isError?: bool
   if (isError || fields.ok === false) {
     // The message is written for the model; its first sentence says what was wrong.
     const why = text(fields.message).split(/(?<=[.!?])\s/)[0] || text(fields.error).replace(/_/g, ' ') || 'no reason given';
-    return `Not accepted. Banjo is told: "${why}"`;
+    return `Didn't go through. Banjo is told: "${why}"`;
   }
   if (name === 'check_my_availability' && typeof fields.free === 'boolean') return fields.free ? 'Free' : 'Busy';
   return null;
@@ -98,7 +98,7 @@ export function describeOutcome(outcome: TaskOutcome | null | undefined, timeZon
     case 'negotiation_failed':
       return withNote('No time agreed', outcome.reason);
     case 'escalated':
-      return withNote('Handed to the owner', outcome.reason);
+      return withNote("Needs the owner's attention", outcome.reason);
     case 'failed':
       return withNote('The call did not finish', outcome.reason);
     case 'conversation_completed':

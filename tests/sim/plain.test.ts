@@ -20,9 +20,9 @@ describe('the sim in plain words: tool calls', () => {
 
   it('shows a refusal by the first sentence of what Banjo was told', () => {
     const refused = { ok: false, error: 'no_goodbye', message: 'You have not said goodbye yet. This note is from the system, not from them.' };
-    expect(describeToolResult('end_call', refused, true)).toBe('Not accepted. Banjo is told: "You have not said goodbye yet."');
+    expect(describeToolResult('end_call', refused, true)).toBe(`Didn't go through. Banjo is told: "You have not said goodbye yet."`);
     expect(describeToolResult('leave_voicemail_and_end_call', { ok: false, error: 'voicemail_delivery_unverified' })).toBe(
-      'Not accepted. Banjo is told: "voicemail delivery unverified"',
+      `Didn't go through. Banjo is told: "voicemail delivery unverified"`,
     );
   });
 
@@ -61,7 +61,7 @@ describe('the sim in plain words: outcome', () => {
 
   it('covers the other endings, and a task with no outcome', () => {
     expect(describeOutcome({ kind: 'failed', reason: 'callee hung up' }, 'UTC')).toBe('The call did not finish: callee hung up');
-    expect(describeOutcome({ kind: 'escalated', reason: 'They stopped responding.' }, 'UTC')).toBe('Handed to the owner: They stopped responding.');
+    expect(describeOutcome({ kind: 'escalated', reason: 'They stopped responding.' }, 'UTC')).toBe("Needs the owner's attention: They stopped responding.");
     expect(describeOutcome(null, 'UTC')).toBe('No outcome was recorded.');
   });
 });
