@@ -3,7 +3,7 @@
  * the fixture, has a running Banjo call it over MCP, waits for the outcome,
  * then checks what the fixture side recorded. No call reaches anyone's phone.
  *
- *   npm run fixtures:call -- voicemail|ivr|hold
+ *   npm run fixtures:call -- voicemail|ivr|ivr-keys|hold
  *
  * Needs, in .env: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, OPENAI_API_KEY,
  * FIXTURE_PHONE_NUMBER, FIXTURE_PHONE_NUMBER_SID, FIXTURE_FUNCTIONS_DOMAIN
@@ -16,11 +16,12 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import twilio from 'twilio';
 
-type Fixture = 'voicemail' | 'ivr' | 'hold';
+type Fixture = 'voicemail' | 'ivr' | 'ivr-keys' | 'hold';
 
 const CALLS: Record<Fixture, Record<string, unknown>> = {
   voicemail: { taskDescription: 'Book a full groom for Banjo, a golden retriever, any weekday next week.' },
   ivr: { taskDescription: 'Book a checkup for Banjo, a golden retriever, any weekday next week.' },
+  'ivr-keys': { taskDescription: 'Book a checkup for Banjo, a golden retriever, any weekday next week.' },
   hold: { taskDescription: 'Find out whether they have front brake pads for a 2019 Honda Civic in stock.', mode: 'ask', questions: ['Do you have front brake pads for a 2019 Honda Civic in stock?'] },
 };
 
@@ -55,7 +56,7 @@ function parse(result: unknown): Record<string, unknown> {
 
 async function main(): Promise<void> {
   const fixture = process.argv[2] as Fixture;
-  if (!(fixture in CALLS)) throw new Error('usage: npm run fixtures:call -- voicemail|ivr|hold');
+  if (!(fixture in CALLS)) throw new Error('usage: npm run fixtures:call -- voicemail|ivr|ivr-keys|hold');
   const accountSid = need('TWILIO_ACCOUNT_SID');
   const authToken = need('TWILIO_AUTH_TOKEN');
   const tw = twilio(accountSid, authToken);
@@ -66,7 +67,13 @@ async function main(): Promise<void> {
   const mcp = new Client({ name: 'banjo-fixtures', version: '1.0.0' });
   await mcp.connect(new StreamableHTTPClientTransport(new URL(need('BANJO_MCP_URL')), { requestInit: { headers: { Authorization: `Bearer ${need('BANJO_MCP_KEY')}` } } }));
   const found = parse(await mcp.callTool({ name: 'find_contact', arguments: { query: 'Banjo test line' } }));
-  const contact = (found.bestMatch as { id: string } | undefined) ?? (parse(await mcp.callTool({ name: 'add_contact', arguments: { displayName: 'Banjo test line', phoneNumber: number } })) as { id: string });
+  let contact = found.bestMatch as { id: string } | undefined;
+  if (!contact) {
+    // add_contact answers { contact } for a new one, { existingContact } when the number is already saved under any name.
+    const added = parse(await mcp.callTool({ name: 'add_contact', arguments: { displayName: 'Banjo test line', phoneNumber: number } }));
+    contact = (added.contact ?? added.existingContact) as { id: string } | undefined;
+  }
+  if (!contact) throw new Error('could not find or add the fixture contact');
 
   const startedAt = new Date();
   const placed = parse(await mcp.callTool({ name: 'place_call', arguments: { contactId: contact.id, ...CALLS[fixture] } }));
@@ -100,7 +107,7 @@ async function main(): Promise<void> {
     checks.push(['recorded voicemail_left', status === 'voicemail_left']);
     checks.push(['the message opens with the AI disclosure', DISCLOSURE.test(heard.split(/\s+/).slice(0, 15).join(' '))]);
     checks.push(['the disclosure is said once', (heard.match(/\bAI assistant\b/gi) ?? []).length === 1]);
-  } else if (fixture === 'ivr') {
+  } else if (fixture === 'ivr' || fixture === 'ivr-keys') {
     const svc = (await tw.serverless.v1.services.list()).find((s) => s.uniqueName === 'banjo-fixtures');
     const env = svc && (await tw.serverless.v1.services(svc.sid).environments.list()).find((e) => e.uniqueName === 'production');
     const logs = svc && env ? await tw.serverless.v1.services(svc.sid).environments(env.sid).logs.list({ startDate: startedAt }) : [];
