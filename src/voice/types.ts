@@ -162,6 +162,13 @@ export interface VoiceAIProvider {
    */
   readonly transcriptLeadsAudio?: boolean;
   /**
+   * How long a silence after Banjo's question means nobody is there (#179),
+   * when it isn't CallSession's own default. Only the interactive simulator
+   * sets it (#277): someone reading and deciding what to type is not a dead
+   * line. Never set on a real call, a scripted run or an eval.
+   */
+  readonly quietAfterQuestionMs?: number;
+  /**
    * Optional; true for a provider that may hold a sayVerbatim() message until
    * another response is done (openai: a second response.create is rejected
    * while one is open, #177), and so marks the message's own turn_end with

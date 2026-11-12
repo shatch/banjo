@@ -3143,6 +3143,25 @@ describe('CallSession: a question of Banjo met with silence (#179)', () => {
     return { telephony, options, session };
   }
 
+  it('waits as long as the voice provider asks, for someone typing in the simulator (#277)', async () => {
+    vi.useFakeTimers();
+    (fakeVoiceAI as { quietAfterQuestionMs?: number }).quietAfterQuestionMs = 60_000;
+    try {
+      await started();
+      say('user', 'Hello?');
+      say('assistant', "Hi, I'm an AI assistant calling on behalf of Steve. How's your day going?");
+      emit({ type: 'turn_end' });
+
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(fakeVoiceAI.triggerResponse).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(vi.mocked(fakeVoiceAI.triggerResponse).mock.lastCall?.[0]).toMatch(/still there/i);
+    } finally {
+      delete (fakeVoiceAI as { quietAfterQuestionMs?: number }).quietAfterQuestionMs;
+      vi.useRealTimers();
+    }
+  });
+
   it('checks once that they are still there, then cues a goodbye, and stops there', async () => {
     vi.useFakeTimers();
     try {

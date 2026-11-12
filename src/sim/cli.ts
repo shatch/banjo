@@ -29,6 +29,7 @@ import type { TextVoiceAIProvider } from './simCall.js';
 
 /** How this was started, for the usage text: docker-compose.yml's sim service sets it. */
 const TYPING_NOTICE_EVERY_MS = 3000;
+const TYPED_REPLY_WAIT_MS = 60_000;
 const COMMAND = process.env.BANJO_SIM_COMMAND || 'npm run sim --';
 
 const USAGE = `Usage: ${COMMAND} [options]
@@ -146,7 +147,8 @@ async function main(): Promise<void> {
     questions,
     durationMinutes,
     windowDays,
-    createVoiceAI: () => new OpenAIRealtimeProvider({ textOnly: true }),
+    // A person typing live gets longer to answer than a phone line would (#277). A script keeps the call's timing.
+    createVoiceAI: () => new OpenAIRealtimeProvider({ textOnly: true, ...(scriptLines ? {} : { quietAfterQuestionMs: TYPED_REPLY_WAIT_MS }) }),
     owner,
     ...(askOwner !== undefined && { ownerAnswer: askOwner === 'none' ? null : askOwner }),
     plainTools: !values.verbose,

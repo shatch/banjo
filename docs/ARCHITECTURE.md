@@ -787,7 +787,10 @@ their terminal raised SIGIO on a keystroke, which `docker compose run` forwards 
 process, so the CLI ignores it; time spent typing counted as silence, so Banjo asked "Are you still
 there?" and hung up mid-sentence, and typing now reaches the session as the other party starting to
 speak (`userIsTyping()`, an `interrupted` event, not while Banjo is replying); and the raw JSON read
-as debug output.
+as debug output. An interactive run also gives the person 60 seconds, not 12, to start
+answering a question of Banjo's before it asks whether they're still there (#277,
+`VoiceAIProvider.quietAfterQuestionMs`): they are reading, not gone. A `--script` run and the evals
+keep the call's timing, since they are how the silence handling is tested.
 
 `src/sim/env.ts` runs before config is imported. It forces everything that could reach the outside
 world off: no notifications, webhook or recording. It points `DATABASE_URL` at `banjo_sim` on the

@@ -173,6 +173,12 @@ export interface OpenAIRealtimeProviderOptions {
    * heard on live calls never showed up in text-only evals.
    */
   spokenReplies?: boolean;
+  /**
+   * With textOnly, for a person typing live (#277): how long they may leave a
+   * question of Banjo's unanswered before it asks whether they're still there.
+   * Unset: the call's own timing, which scripted runs and evals must keep.
+   */
+  quietAfterQuestionMs?: number;
 }
 
 export class OpenAIRealtimeProvider implements VoiceAIProvider {
@@ -224,6 +230,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
   readonly marksVerbatimTurns = true;
   // #154: the output transcript streams ahead of the audio (see VoiceAIProvider.transcriptLeadsAudio).
   readonly transcriptLeadsAudio = true;
+  readonly quietAfterQuestionMs?: number;
   /** The rate we negotiated for output audio (session.audio.output.format.rate) — used to tag emitted audio_chunks correctly instead of assuming a fixed rate. */
   private outputSampleRate = 24000;
   /** A triggerResponse() that arrived before the socket opened: false for none, else its cue (undefined for none). */
@@ -243,6 +250,7 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
   constructor(options: OpenAIRealtimeProviderOptions = {}) {
     this.textOnly = options.textOnly ?? false;
     this.spokenReplies = this.textOnly && (options.spokenReplies ?? false);
+    if (this.textOnly && options.quietAfterQuestionMs) this.quietAfterQuestionMs = options.quietAfterQuestionMs;
   }
 
   connect(sessionConfig: VoiceAISessionConfig): Promise<void> {
