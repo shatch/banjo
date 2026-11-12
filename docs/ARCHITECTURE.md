@@ -164,6 +164,20 @@ export interface TelephonyProvider {
 
 - **`providers/twilio.ts`** — `client.calls.create({ to, from, url: <TwiML that <Connect><Stream>s to our WS> })`. The provider can also request Twilio's Answering Machine Detection (`answeringMachineDetection: true` → `machineDetection: 'Enable', asyncAmd: true`, result via a status-callback webhook), but outbound calls no longer do: its verdict misread business greetings as machines (Open Risks #23).
 - **`dtmf.ts`** — the `press_digits` tool routes to `TelephonyProvider.sendDigits()`, not a domain/backend service. This is a deliberate architectural distinction from the calendar/task-backed tools in `voice/tools/callTools.ts`: DTMF is phone signaling, not AI speech, even though it's registered with the Voice AI provider exactly like any other tool.
+  **Real key presses (#225).** Tones sent as audio are not heard by every menu. Twilio's own `<Gather>`
+  ignores them: on 2026-11-11 the IVR fixture took `<Play digits="1">` and ignored the "1" tone at 120 ms,
+  at 300 ms, and at 300 ms louder. Menus reached over the phone network (Xfinity's, 2026-10-18) do take
+  them. So the first press of some digits is tones, and the same digits pressed again within 90 seconds go
+  out as a real key press: `TwilioProvider.pressDigitsOnCall` redirects the live call to
+  `<Play digits>` followed by a fresh `<Connect><Stream>` with a new single-use stream token. Twilio ends
+  the old stream and opens a new one; while `streamSwap` is set, the old stream's `stop`/close is not the
+  call ending, and the new stream's `start` emits no second `connected`, so `CallSession` and the voice
+  session carry on untouched. The cost is a second or two in which Banjo hears and says nothing, which is
+  why tones stay first. If the redirect fails, the press falls back to tones; if the stream isn't back in
+  15 seconds, the call is ended as `socket_closed`. Verified on a live call to the keys-only menu fixture
+  (`ivr-keys`, 2026-11-11): tones on the first pass were ignored, the menu replayed, Banjo pressed again,
+  the fixture logged the key, and the new stream was attached 0.8 seconds after the redirect, before the
+  old socket had closed. That order is why a swap's new stream may attach while the old one is still set.
 - **`audio/codec.ts`** — `muLawToPcm16`, `pcm16ToMuLaw`, `resamplePcm16`. `src/session/audioPipeline.ts` resolves which conversion (if any) is needed once per call, based on `(telephony's native format, negotiated voice-AI format)`. When both sides support mu-law directly (OpenAI/ElevenLabs paired with Twilio), it's pure passthrough — a real latency/CPU win. A naive linear-interpolation resampler is used for v1; a proper resampling library is a flagged future upgrade, not a blocker.
 
 ### Call transfer (#7)

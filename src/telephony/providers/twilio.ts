@@ -33,6 +33,14 @@ const DTMF_FREQUENCIES: Record<string, [number, number]> = {
 const DTMF_SAMPLE_RATE = 8000;
 const DTMF_TONE_MS = 120;
 const DTMF_GAP_MS = 80;
+/**
+ * The same digits pressed again within this long are sent as a real key press
+ * (#225): the menu didn't react to the tones, and has had time to say so and
+ * replay itself.
+ */
+const DTMF_REPEAT_WINDOW_MS = 90_000;
+/** How long a real key press waits for Twilio to reopen the media stream before the call is taken as gone. */
+const STREAM_SWAP_TIMEOUT_MS = 15_000;
 
 /** readyState numeric value for an open ws connection (avoids needing a value import of the WebSocket class under verbatimModuleSyntax). */
 const WS_OPEN = 1;
@@ -65,6 +73,16 @@ interface TwilioCallState {
   // A start that failed after it was sent (#151): Twilio may still have begun
   // recording, and not list it yet. stopRecording then can't confirm a stop.
   recordingUncertain?: boolean;
+  /** Answered, not placed: its stream TwiML differs (buildInboundTwiml). */
+  inbound?: boolean;
+  /** The latest press_digits, so the same digits pressed again can go out as a real key press (#225). */
+  lastDigits?: { digits: string; at: number };
+  /**
+   * Set while a real key press (#225) has redirected the call: Twilio ends
+   * the media stream, plays the digits and opens a new stream. Until then the
+   * old stream ending is not the call ending.
+   */
+  streamSwap?: { timer: NodeJS.Timeout; done: () => void };
 }
 
 function newStreamToken(): string {
@@ -78,13 +96,13 @@ function streamTokenMatches(expected: string | null, given: unknown): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function streamTwiml(path: string, parameters: Record<string, string | null | undefined>): string {
+function streamTwiml(path: string, parameters: Record<string, string | null | undefined>, before = ''): string {
   const streamUrl = `wss://${config.PUBLIC_HOSTNAME}${path}`;
   const params = Object.entries(parameters)
     .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
     .map(([name, value]) => `<Parameter name="${name}" value="${value}" />`)
     .join('');
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${streamUrl}">${params}</Stream></Connect></Response>`;
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${before}<Connect><Stream url="${streamUrl}">${params}</Stream></Connect></Response>`;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -310,7 +328,7 @@ export class TwilioProvider implements TelephonyProvider {
    * its own doc comment describes for a different code path.
    */
   registerInboundCall(callSid: string, from: string): void {
-    this.calls.set(callSid, { ws: null, streamSid: null, providerCallId: callSid, toNumber: from, streamToken: newStreamToken() });
+    this.calls.set(callSid, { ws: null, streamSid: null, providerCallId: callSid, toNumber: from, streamToken: newStreamToken(), inbound: true });
     // .unref() so this timer never keeps the process (or a test run) alive
     // by itself — the server's own listening socket is what keeps a real
     // process running; this timer only needs to fire while something else
@@ -436,7 +454,7 @@ export class TwilioProvider implements TelephonyProvider {
           const state = this.calls.get(claimedCallId);
           const refusal = !state
             ? 'no such call'
-            : state.ws
+            : state.ws && !state.streamSwap
               ? 'call already has a media stream'
               : !streamTokenMatches(state.streamToken, msg.start?.customParameters?.streamToken)
                 ? 'missing or wrong stream token'
@@ -455,6 +473,14 @@ export class TwilioProvider implements TelephonyProvider {
           state.ws = ws;
           if (streamSid) state.streamSid = streamSid;
           if (callSid) state.providerCallId = callSid;
+
+          // The stream a real key press reopened (#225): the same call
+          // carrying on, so nothing is told it "connected" a second time.
+          if (state.streamSwap) {
+            logger.info({ callId }, 'media stream reconnected after a real key press');
+            state.streamSwap.done();
+            break;
+          }
 
           const event: TelephonyEvent = {
             callId,
@@ -501,6 +527,7 @@ export class TwilioProvider implements TelephonyProvider {
         }
         case 'stop': {
           if (!callId) break;
+          if (this.streamReplaced(callId, ws)) break;
           // Distinguishes "Twilio told us the call ended" from "ea told
           // Twilio to end the call" (logged separately in hangUp() below) —
           // both used to be indistinguishable after the fact from log
@@ -533,6 +560,7 @@ export class TwilioProvider implements TelephonyProvider {
       // so this is harmless even if 'stop' already handled this same call
       // moments earlier.
       if (!callId) return;
+      if (this.streamReplaced(callId, ws)) return;
       this.clearInboundRegistrationTimeout(callId);
       if (this.calls.has(callId)) {
         this.forgetCall(callId);
@@ -604,7 +632,8 @@ export class TwilioProvider implements TelephonyProvider {
   sendAudio(callId: string, chunk: AudioChunk): void {
     const state = this.calls.get(callId);
     if (!state?.ws || !state.streamSid || state.ws.readyState !== WS_OPEN) {
-      logger.warn({ callId }, 'sendAudio called with no open Media Stream connection');
+      // Expected for a second or two while a real key press swaps the stream (#225).
+      if (!state?.streamSwap) logger.warn({ callId }, 'sendAudio called with no open Media Stream connection');
       return;
     }
 
@@ -633,6 +662,18 @@ export class TwilioProvider implements TelephonyProvider {
       throw new Error(`sendDigits: no open Media Stream connection for callId=${callId}`);
     }
 
+    // The same digits again, soon after: the menu didn't take the tones.
+    // Twilio's own <Gather> never does (#225, tested 2026-11-11: tones of
+    // 120 and 300 ms went unheard, <Play digits> was taken), so this press
+    // goes out as a real one. The first press stays tones: menus reached
+    // over the phone network do hear them, and they cost no gap in the call.
+    const repeat = state.lastDigits?.digits === digits && Date.now() - state.lastDigits.at < DTMF_REPEAT_WINDOW_MS;
+    state.lastDigits = { digits, at: Date.now() };
+    if (repeat && (await this.pressDigitsOnCall(callId, state, digits))) return;
+    if (!state.ws || !state.streamSid || state.ws.readyState !== WS_OPEN) {
+      throw new Error(`sendDigits: no open Media Stream connection for callId=${callId}`);
+    }
+
     // CONFIRMED against Twilio's Media Streams WebSocket Messages docs
     // (2026-08): a server can only ever send `media`/`mark`/`clear` message
     // types to Twilio over a bidirectional Media Stream. Twilio's `dtmf`
@@ -656,6 +697,70 @@ export class TwilioProvider implements TelephonyProvider {
     }
   }
 
+  /**
+   * A real key press (#225): redirects the live call to TwiML that plays the
+   * digits as DTMF and then reconnects the media stream, the only way Twilio
+   * offers to signal a key on a <Connect><Stream> call. Banjo hears nothing
+   * and can say nothing until the new stream opens, a second or two. Resolves
+   * true once it has (or the call is gone), false if the redirect failed and
+   * the old stream is still the call's, so the caller can fall back to tones.
+   */
+  private async pressDigitsOnCall(callId: string, state: TwilioCallState, digits: string): Promise<boolean> {
+    if (!state.providerCallId || state.streamSwap || !/^[0-9*#]+$/.test(digits)) return false;
+
+    state.streamToken = newStreamToken();
+    const reconnected = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        state.streamSwap = undefined;
+        resolve();
+        if (this.calls.get(callId) !== state) return;
+        logger.warn({ callId }, 'media stream did not reconnect after a real key press — treating the call as ended');
+        this.forgetCall(callId);
+        const event: TelephonyEvent = { callId, type: 'ended', reason: 'socket_closed' };
+        this.emitter.emit('event', event);
+      }, STREAM_SWAP_TIMEOUT_MS);
+      state.streamSwap = {
+        timer,
+        done: () => {
+          clearTimeout(timer);
+          state.streamSwap = undefined;
+          resolve();
+        },
+      };
+    });
+
+    const twiml = state.inbound
+      ? streamTwiml('/telephony/twilio/inbound-stream', { streamToken: state.streamToken }, `<Play digits="${digits}"/>`)
+      : streamTwiml('/telephony/twilio/stream', { callId, streamToken: state.streamToken }, `<Play digits="${digits}"/>`);
+    try {
+      logger.info({ callId, digitCount: digits.length }, 'sending a real key press: redirecting the call to play the digits and reconnect its stream');
+      await this.client.calls(state.providerCallId).update({ twiml });
+    } catch (err) {
+      logger.warn({ err, callId }, 'real key press failed (call redirect refused) — falling back to tones');
+      // Read through the map: TS has narrowed state.streamSwap to unset since the check above.
+      this.calls.get(callId)?.streamSwap?.done();
+      state.streamToken = null;
+      return false;
+    }
+    await reconnected;
+    return true;
+  }
+
+  /**
+   * Whether `ws` is a stream this call has finished with, so its stop or
+   * close is not the call ending: one already replaced by a newer stream, or
+   * the one a real key press (#225) is replacing right now.
+   */
+  private streamReplaced(callId: string, ws: WebSocket): boolean {
+    const state = this.calls.get(callId);
+    if (!state) return false;
+    if (state.ws !== ws) return true;
+    if (!state.streamSwap) return false;
+    state.ws = null;
+    state.streamSid = null;
+    return true;
+  }
+
   interrupt(callId: string): void {
     const state = this.calls.get(callId);
     if (!state?.ws || !state.streamSid || state.ws.readyState !== WS_OPEN) return;
@@ -668,6 +773,7 @@ export class TwilioProvider implements TelephonyProvider {
 
   /** The only way a call leaves `calls` — remembered in recentlyEnded (see hangUp). */
   private forgetCall(callId: string): void {
+    this.calls.get(callId)?.streamSwap?.done();
     this.calls.delete(callId);
     // The other party hung up while Banjo was reaching the owner (#149): stop
     // ringing them for a call that's gone. A bridge in progress forgets the
