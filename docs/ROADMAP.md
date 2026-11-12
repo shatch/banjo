@@ -72,11 +72,11 @@ made, not deferred. See item 3 — if only one of the two ships, ship them toget
 > **Cold transfer shipped** with #7 ([PR #67](https://github.com/shatch/banjo/pull/67)): `TRANSFER_ENABLED`,
 > `TRANSFER_TO_PHONE_NUMBER`, a REST-redirect `<Dial>` to one fixed number, only after the other
 > party agrees, gated on both the tool and the prompt rule. See `docs/ARCHITECTURE.md`'s "Call
-> transfer (#7)" section for how it works. Still open: **warm transfer** (needs a second concurrent
-> call leg — `isAnyCallActive()` is still the entire concurrency policy) and, as the next step
-> before that, **a whisper to the principal before bridging** (a short "Banjo transfer: `<contact>`,
-> `<reason>`" played to you before the call connects — deferred because SMS is blocked on 10DLC
-> registration today, so v1 transfers arrive with no context at all).
+> transfer (#7)" section for how it works. Since then: the principal's phone hears "press 1 to take
+> it" before a cold transfer is bridged (#74), so a voicemail can't take the call, and **warm
+> transfer** is built as `TRANSFER_MODE=warm` ([#149]): Banjo briefs the principal on a second line
+> and bridges only on a 1. Warm mode is opt-in and not yet verified on a live call. Still open: a
+> cold transfer arrives with no spoken context about who is on the line or why.
 
 **Why:** the current escape hatch when a call needs a human is `escalate_and_end_call` /
 `flag_for_owner_and_end_call` — hang up and notify. Handing the live call to a person instead is the
@@ -219,16 +219,19 @@ hand to an autonomous agent. Everything below either gets that in front of peopl
 easier to try. None of it changes what Banjo is (see `CONTRIBUTING.md`): no UI, no tenants,
 outbound first.
 
-4.1–4.4 shipped in v0.1.4. The order for the rest, and why:
+Where this stands as of v0.1.21 (2026-11-12): 4.1–4.6 have shipped, and so has everything in 4.7
+except cancel-or-reschedule. What's left, in order:
 
-1. **4.5 text simulator.** Needed before any launch, and wait-on-hold can't be built without one:
-   the per-number call cap rules out redialling one phone tree over and over, by design.
-2. **4.7 call and ask** ([#148]). Cheap, and every other errand is built on it.
-3. **4.7 warm loop-in** ([#149]). Wait-on-hold hands off through it.
-4. **4.7 wait on hold** ([#151]). The feature people would share, so it goes before launch.
-5. **Launch.**
-6. **4.6 owner approval and pre-dial screening** ([#150]), shipped and pitched together.
-7. **4.8 easier self-hosting and more vendors.**
+1. **Open call-conduct issues** found on real calls, such as [#204] (a Spanish-first menu) and
+   [#250] (a wrong number's sales menu).
+2. **4.7 cancel or reschedule.**
+3. **4.8 easier self-hosting and more vendors.**
+
+The order the shipped items were built in, and why: the text simulator first (wait-on-hold couldn't
+be built without one, since the per-number call cap rules out redialling one phone tree over and
+over); then call and ask ([#148]), which every other errand is built on; then warm loop-in
+([#149]), which wait-on-hold hands off through; then wait on hold ([#151]); then owner approval and
+pre-dial screening ([#150]).
 
 ### 4.1 Streamable HTTP transport for the MCP server
 
@@ -279,11 +282,16 @@ notifications, a failed webhook must never throw into a call or a transition.
 
 ### 4.5 A text-mode simulator
 
-> **Shipped** as `npm run sim` (`scripts/sim.ts`, `src/sim/`). The voice side is OpenAI Realtime in
-> text-only mode (`OpenAIRealtimeProvider({ textOnly: true })`), so it runs the same model, prompt
-> and tools as a call. The phone line, calendar and voice provider are swapped in through override
-> seams in the three factories. The sim uses its own `banjo_sim` database. Not yet covered: inbound
-> calls, and the hold mode #151 needs.
+> **Shipped** as `npm run sim` (`src/sim/`; `scripts/sim.ts` is a wrapper). The voice side is OpenAI
+> Realtime in text-only mode (`OpenAIRealtimeProvider({ textOnly: true })`), so it runs the same
+> model, prompt and tools as a call. The phone line, calendar and voice provider are swapped in
+> through override seams in the three factories. The sim uses its own `banjo_sim` database. Since
+> v0.1.21 it also runs from the published image with only Docker and an OpenAI key
+> (`docker compose run --rm sim`). Built on it: scripted runs that can play a phone menu or hold
+> queue, and scenario evals (`npm run eval`, `evals/scenarios/`) that run against the real model
+> when the prompt changes. What text can't test, audio, is covered by phone-line fixtures on a
+> number of our own (`npm run fixtures:call`: voicemail, phone menu, hold). Not yet covered:
+> inbound calls.
 
 `CONTRIBUTING.md` says it plainly: there is no offline simulator. Trying Banjo today takes Twilio,
 a voice-AI key, a public hostname and, for SMS, A2P registration. That's too much to ask of
@@ -298,6 +306,13 @@ keeps the real event flow through `CallSession`. Tools should hit a throwaway da
 dev `banjo` DB, and calendar writes should go to a dry-run `CalendarProvider`.
 
 ### 4.6 Owner approval before dialing
+
+> **Shipped**, in a different shape from the sketch below. There is no `REQUIRE_CALL_APPROVAL`
+> flag. Approval follows the key: a call placed with the agent key (`MCP_AGENT_API_KEY`) waits
+> until the owner taps Approve on a signed link, and is cancelled after 30 minutes; a call placed
+> with the owner's key dials at once. Screening shipped as `SCREEN_CALLS` ([#150], off by default),
+> and it holds a call for the owner's approval; it never refuses one. It still fails closed: if the
+> check can't run, the call waits for approval.
 
 An autonomous agent can now place calls on a principal's behalf without a human in the loop. An
 opt-in `REQUIRE_CALL_APPROVAL` makes `place_call` create the task as pending approval and send the
@@ -329,8 +344,15 @@ refusal path, and fails closed: if the check errors, no call is placed.
 - **Wait on hold** ([#151]): get through the phone tree with `press_digits`, detect hold music
   or silence without hanging up, and loop in the principal when a human answers. Needs a
   hold-aware silence watchdog (today's would end the call), hold music kept from triggering server
-  VAD, and an upper time limit. This is the feature people would share. **Built** as `wait_on_hold`
-  (OpenAI Realtime only) with `HOLD_MAX_MINUTES`; still needs a real call through a 5-minute-plus hold.
+  VAD, and an upper time limit. This is the feature people would share. **Shipped** as `wait_on_hold`
+  (`openai` and `openai-live`) with `HOLD_MAX_MINUTES`, and checked on real calls against the hold
+  fixture. It also covers a phone's call screen and a voicemail greeting that plays mid-hold
+  (#238). On `openai-live` it is unverified on a live call.
+- **Phone menus that ignore tones** (#225): `press_digits` plays tones as audio, which Twilio's own
+  menus don't detect. **Shipped** in v0.1.21: the same digits pressed again go out as a real key
+  press, by redirecting the call and reconnecting its audio.
+- **Ask the owner mid-call**: **shipped** as `ask_owner` (`ASK_OWNER_ENABLED`). Banjo sends the
+  principal a question with a signed link and relays the typed answer to the live call.
 
 ### 4.8 Easier self-hosting and more vendors
 
@@ -342,12 +364,8 @@ refusal path, and fails closed: if the check errors, no call is placed.
 - Finish verifying the Gemini and ElevenLabs adapters (Open Risks in `docs/ARCHITECTURE.md`), and
   add a Microsoft 365 `CalendarProvider`.
 
-### Then launch
-
-Once 4.5 and the 4.7 errands above (#148, #149, #151) are in: Show HN, r/selfhosted and
-r/LocalLLaMA, pitched as the self-hosted alternative to hosted calling APIs, led by the "Hear it"
-audio and the simulator.
-
+[#204]: https://github.com/shatch/banjo/issues/204
+[#250]: https://github.com/shatch/banjo/issues/250
 [#148]: https://github.com/shatch/banjo/issues/148
 [#149]: https://github.com/shatch/banjo/issues/149
 [#150]: https://github.com/shatch/banjo/issues/150
