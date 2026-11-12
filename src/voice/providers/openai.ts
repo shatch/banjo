@@ -376,6 +376,17 @@ export class OpenAIRealtimeProvider implements VoiceAIProvider {
     this.usage.outputTokens += Number(usage.output_tokens) || 0;
   }
 
+  /**
+   * Text-only: the other party has started typing a line, which is the sim's
+   * version of starting to speak. Without it, someone typing slowly was asked
+   * "Are you still there?" and then hung up on, mid-sentence. Ignored while
+   * Banjo is replying (typing can't cut off text) and on hold.
+   */
+  userIsTyping(): void {
+    if (!this.textOnly || this.onHold || this.openResponseIds.size > 0) return;
+    this.emitEvent({ type: 'interrupted' });
+  }
+
   sendUserText(text: string): void {
     if (!this.textOnly) throw new Error('sendUserText is only for text-only mode');
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {

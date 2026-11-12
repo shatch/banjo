@@ -28,6 +28,7 @@ import { readScript, renderDates, runScript, type ScriptStep } from './script.js
 import type { TextVoiceAIProvider } from './simCall.js';
 
 /** How this was started, for the usage text: docker-compose.yml's sim service sets it. */
+const TYPING_NOTICE_EVERY_MS = 3000;
 const COMMAND = process.env.BANJO_SIM_COMMAND || 'npm run sim --';
 
 const USAGE = `Usage: ${COMMAND} [options]
@@ -56,7 +57,7 @@ Options:
                          Banjo: a phone menu or hold queue, which doesn't wait for anyone.
                          (silence N) says nothing for N seconds (1 to 120) once Banjo goes quiet.
                          {day+N} is said as the date N days from today ("Friday, October 30").
-  --verbose              Show the app's info-level logs.
+  --verbose              Show tool calls and the outcome as raw JSON, and the app's info-level logs.
   -h, --help             Show this.
 
 While the call runs: type a line and press Enter to say it. /hangup hangs up
@@ -148,6 +149,7 @@ async function main(): Promise<void> {
     createVoiceAI: () => new OpenAIRealtimeProvider({ textOnly: true }),
     owner,
     ...(askOwner !== undefined && { ownerAnswer: askOwner === 'none' ? null : askOwner }),
+    plainTools: !values.verbose,
     print,
   }).catch((err: unknown) => {
     if (err instanceof SimInputError) fail(`place_call would refuse this call: ${err.message}`);
@@ -161,6 +163,14 @@ async function main(): Promise<void> {
     if (scriptLines) {
       void runScript(renderDates(scriptLines, new Date(), config.CALENDAR_TIMEZONE), voice, call.telephony, print);
     } else {
+      // Typing is this call's speaking. Tell the session while a line is being typed (at most
+      // every few seconds), or a slow typist is taken for silence and hung up on.
+      let toldAt = 0;
+      process.stdin.on('keypress', () => {
+        if (!rl.line || Date.now() - toldAt < TYPING_NOTICE_EVERY_MS) return;
+        toldAt = Date.now();
+        voice.userIsTyping?.();
+      });
       rl.on('line', (line) => {
         const text = line.trim();
         if (text === '/hangup') call.telephony.calleeHangsUp();
@@ -174,8 +184,12 @@ async function main(): Promise<void> {
   const task = await call.finished;
   rl.close();
   console.log('\n--- outcome ---');
-  console.log(`Task status: ${task.status}`);
-  console.log(JSON.stringify(task.outcome, null, 2));
+  const { describeOutcome } = await import('./plain.js');
+  console.log(describeOutcome(task.outcome, config.CALENDAR_TIMEZONE));
+  if (values.verbose) {
+    console.log(`Task status: ${task.status}`);
+    console.log(JSON.stringify(task.outcome, null, 2));
+  }
   console.log(call.calendar.events.length ? `Calendar (dry run): ${call.calendar.events.map((e) => e.summary).join('; ')}` : 'Calendar: nothing booked.');
   console.log(`The transcript and task are in the ${SIM_DATABASE} database until the next run.`);
   process.exit(0);
@@ -203,6 +217,10 @@ function fail(message: string): never {
   console.error(`sim: ${message}`);
   process.exit(1);
 }
+
+// A terminal can raise SIGIO on a keystroke, and `docker compose run` forwards it into the
+// container, where its default action ends the process: a real run died at the second letter typed.
+process.on('SIGIO', () => {});
 
 main().catch((err) => {
   console.error('sim failed:', err);

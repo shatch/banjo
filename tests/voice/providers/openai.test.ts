@@ -487,6 +487,21 @@ describe('OpenAIRealtimeProvider: text-only mode', () => {
     ]);
   });
 
+  it('counts typing as starting to speak, but not while Banjo is replying or on a real call', async () => {
+    const { provider, ws, events } = await open({ textOnly: true });
+    provider.userIsTyping();
+    expect(events).toEqual([{ type: 'interrupted' }]);
+    expect(ws.sent).toEqual([]);
+
+    ws.emit('message', JSON.stringify({ type: 'response.created', response: { id: 'resp_1' } }));
+    provider.userIsTyping();
+    expect(events.filter((e) => e.type === 'interrupted')).toHaveLength(1);
+
+    const real = await open();
+    real.provider.userIsTyping();
+    expect(real.events).toEqual([]);
+  });
+
   it('sends a typed line as a user message, prompts a reply, and reports it as a final user transcript', async () => {
     const { provider, ws, events } = await open({ textOnly: true });
     provider.sendUserText('Claudia’s, how can I help?');

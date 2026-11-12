@@ -402,7 +402,8 @@ _A scripted run (`--script`, playing the lines starting with `~` as a hold queue
 
 Options: `--business`, `--goal`, `--mode conversation`, `--mode ask` with one or more `--question`
 (checked as `place_call` checks them: 1 to 5, each on one line), `--duration` (booking only), `--transfer` (or `--warm` with `--owner accept|decline|no-answer`), and
-`--script <file>` to play your side from a file (a line starting with `~` plays like a recording, for menus and hold queues). Run `npm run sim -- --help` or see the top of
+`--script <file>` to play your side from a file (a line starting with `~` plays like a recording, for menus and hold queues), and
+`--verbose` to see each tool call, its result and the outcome as raw JSON in place of the plain-words lines. Run `npm run sim -- --help` or see the top of
 `src/sim/cli.ts`. The sim keeps its records in a separate `banjo_sim` database, which it empties at
 the start of each run, and never touches your real one.
 

@@ -37,7 +37,7 @@ describe('simEnv', () => {
       INBOUND_BOOKING_ENABLED: 'false',
       TRANSFER_ENABLED: 'false',
       VOICE_AI_PROVIDER: 'openai',
-      LOG_LEVEL: 'warn',
+      LOG_LEVEL: 'error',
     });
     expect(env).not.toHaveProperty('TRANSFER_TO_PHONE_NUMBER');
   });

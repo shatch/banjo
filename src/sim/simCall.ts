@@ -12,6 +12,7 @@ import { getTask, isTerminalStatus } from '../tasks/service.js';
 import { overrideVoiceAIProvider } from '../voice/factory.js';
 import type { VoiceAIProvider } from '../voice/types.js';
 import { SIM_BUSINESS_NUMBER } from './env.js';
+import { describeToolCall, describeToolResult } from './plain.js';
 import { SimCalendarProvider } from './simCalendar.js';
 import { SimTelephonyProvider } from './simTelephony.js';
 import { modeRules } from '../tasks/modes.js';
@@ -21,6 +22,8 @@ import { answerQuestion } from '../ownerQuestions/service.js';
 /** A voice session the other party types into: OpenAIRealtimeProvider in text-only mode, or a test's fake. */
 export interface TextVoiceAIProvider extends VoiceAIProvider {
   sendUserText(text: string): void;
+  /** The other party has started typing: they count as speaking, so Banjo doesn't take the pause for silence. */
+  userIsTyping?(): void;
 }
 
 export interface SimCallOptions {
@@ -45,6 +48,11 @@ export interface SimCallOptions {
    * seconds after it's sent, or null for never answering. Unset: ask_owner is off.
    */
   ownerAnswer?: string | null;
+  /**
+   * Show tool calls in plain words (sim/plain.ts), with a result only when it
+   * adds something. Unset: the raw name, arguments and result, as JSON.
+   */
+  plainTools?: boolean;
   /** Everything the sim shows, other than what the person types. */
   print: (line: string) => void;
 }
@@ -105,7 +113,7 @@ export async function startSimCall(opts: SimCallOptions): Promise<SimCall> {
   const ready = new Promise<TextVoiceAIProvider | null>((resolve) => (resolveReady = resolve));
   overrideVoiceAIProvider(() => {
     const voice = opts.createVoiceAI();
-    showBanjo(voice, opts.print);
+    showBanjo(voice, opts.print, opts.plainTools ?? false);
     voice.on('event', (event) => {
       if (event.type === 'connected') resolveReady(voice);
     });
@@ -157,17 +165,25 @@ export function endSimOverrides(): void {
 }
 
 /** Prints Banjo's lines, and each tool call with its result, as they happen. */
-function showBanjo(voice: TextVoiceAIProvider, print: (line: string) => void): void {
+function showBanjo(voice: TextVoiceAIProvider, print: (line: string) => void, plain: boolean): void {
+  const principal = config.ASSISTANT_PRINCIPAL_NAME;
+  const names = new Map<string, string>();
   voice.on('event', (event) => {
     if (event.type === 'transcript' && event.role === 'assistant' && event.isFinal && event.text.trim()) {
       print(`Banjo: ${event.text.trim().replace(/\s+/g, ' ')}`);
     } else if (event.type === 'tool_call') {
-      print(`  → ${event.call.name} ${JSON.stringify(event.call.arguments)}`);
+      names.set(event.call.id, event.call.name);
+      print(plain ? `  · ${describeToolCall(event.call.name, event.call.arguments as Record<string, unknown>, principal)}` : `  → ${event.call.name} ${JSON.stringify(event.call.arguments)}`);
     }
   });
   const sendToolResult = voice.sendToolResult.bind(voice);
   voice.sendToolResult = (toolCallId, result, isError, options) => {
-    print(`  ← ${isError ? 'error ' : ''}${JSON.stringify(result)}`);
+    if (plain) {
+      const line = describeToolResult(names.get(toolCallId) ?? '', result, isError);
+      if (line) print(`    ${line}`);
+    } else {
+      print(`  ← ${isError ? 'error ' : ''}${JSON.stringify(result)}`);
+    }
     sendToolResult(toolCallId, result, isError, options);
   };
 }
