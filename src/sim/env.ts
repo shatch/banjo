@@ -71,6 +71,8 @@ export function simEnv(
     TRANSFER_MODE: opts.warm ? 'warm' : 'cold',
     // Where a transfer would go. Fictional, and the sim's phone line only reports it.
     ...(opts.transfer ? { TRANSFER_TO_PHONE_NUMBER: SIM_OWNER_NUMBER } : {}),
-    LOG_LEVEL: opts.verbose ? 'info' : 'warn',
+    // Warnings are part of a normal call (a refused ending, a silence check) and the tool lines
+    // already show them; as raw log lines they landed in the middle of what the person was typing.
+    LOG_LEVEL: opts.verbose ? 'info' : 'error',
   };
 }

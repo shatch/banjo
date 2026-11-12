@@ -778,6 +778,17 @@ Postgres. Three things are swapped, each through an `override…Provider()` seam
   `sendUserText()`, which reports them as final user transcripts, so `CallSession` treats them
   exactly like transcribed speech.
 
+**What an interactive run shows.** Tool calls appear in plain words (`src/sim/plain.ts`: "Banjo checks
+Alex's calendar: Friday, November 13 at 4:15pm", then "Free"), a result only when it adds something,
+and the outcome as a sentence. `--verbose` shows the raw JSON instead, and the app's logs; without it
+only errors are logged, since a warning printed as a log line lands in the middle of what the person
+is typing. Three things were found by the first person to type into the Docker try-out (2026-11-12):
+their terminal raised SIGIO on a keystroke, which `docker compose run` forwards and which ended the
+process, so the CLI ignores it; time spent typing counted as silence, so Banjo asked "Are you still
+there?" and hung up mid-sentence, and typing now reaches the session as the other party starting to
+speak (`userIsTyping()`, an `interrupted` event, not while Banjo is replying); and the raw JSON read
+as debug output.
+
 `src/sim/env.ts` runs before config is imported. It forces everything that could reach the outside
 world off: no notifications, webhook or recording. It points `DATABASE_URL` at `banjo_sim` on the
 same server, and the sim refuses to empty any database with another name.
