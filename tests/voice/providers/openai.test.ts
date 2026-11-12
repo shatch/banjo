@@ -502,6 +502,12 @@ describe('OpenAIRealtimeProvider: text-only mode', () => {
     expect(real.events).toEqual([]);
   });
 
+  it('asks for a longer wait only when typing live: not on a script, and never on a real call (#277)', () => {
+    expect(new OpenAIRealtimeProvider({ textOnly: true, quietAfterQuestionMs: 60_000 }).quietAfterQuestionMs).toBe(60_000);
+    expect(new OpenAIRealtimeProvider({ textOnly: true }).quietAfterQuestionMs).toBeUndefined();
+    expect(new OpenAIRealtimeProvider({ quietAfterQuestionMs: 60_000 }).quietAfterQuestionMs).toBeUndefined();
+  });
+
   it('sends a typed line as a user message, prompts a reply, and reports it as a final user transcript', async () => {
     const { provider, ws, events } = await open({ textOnly: true });
     provider.sendUserText('Claudia’s, how can I help?');

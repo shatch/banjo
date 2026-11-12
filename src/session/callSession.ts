@@ -1419,7 +1419,7 @@ export class CallSession<TCtx = CallContext> {
     if (this.quietAfterQuestionTimer || !this.banjoAskedSinceThem || this.quietCues >= 2) return;
     if (this.hold || this.isEnding() || this.callEndingToolCallId !== null || this.unansweredQuestionTimer) return;
     const stillPlayingMs = Math.max(0, this.audioPlaybackTracker.estimatedDoneAt() - Date.now());
-    this.quietAfterQuestionTimer = setTimeout(() => this.handleQuietAfterQuestion(), stillPlayingMs + QUIET_AFTER_QUESTION_MS);
+    this.quietAfterQuestionTimer = setTimeout(() => this.handleQuietAfterQuestion(), stillPlayingMs + (this.voiceAI.quietAfterQuestionMs ?? QUIET_AFTER_QUESTION_MS));
   }
 
   private handleQuietAfterQuestion(): void {
