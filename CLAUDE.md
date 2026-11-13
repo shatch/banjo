@@ -18,6 +18,7 @@ npm run sim                # text-mode simulator: type as the business while Ban
 docker compose run --rm sim   # the same simulator from the image, no Node or .env (code in src/sim/cli.ts so dist/ has it; scripts/sim.ts is a wrapper)
 npm run eval               # scenario evals (evals/scenarios/*.yaml) against real OpenAI via the sim; warns only. --scenario <id>, --runs N, --record (re-record replays for npm test), --save-baseline, --spoken (audio-out replies)
 npm run readme:showcase    # regenerates README's "See it work" from evals/recordings (scripts/showcase/lib.ts's PICKS); run after every --record, or npm test fails
+npm run readme:gif         # re-records README's sim GIF (assets/sim-hold.gif) with asciinema + agg; run after changing what the sim prints, nothing checks it
 npm run dav:check          # read-only: lists CalDAV calendars / CardDAV address books, shows what Banjo sees
 npm run setup              # interactive: asks for required settings, validates with the app's own schema, writes .env (backs up an existing one)
 docker compose up          # Postgres + Banjo in Docker (migrations applied on boot)

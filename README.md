@@ -599,6 +599,7 @@ Vitest, Docker.
 | `npm run sim` | Text-mode simulator: type as the business while Banjo calls it. No phone, no real calendar |
 | `npm run eval` | Scenario evals: scripted sim calls against real OpenAI, scored, with cost. Passing runs are recorded and replayed free in `npm test` (see `docs/ARCHITECTURE.md`) |
 | `npm run readme:showcase` | Regenerates [See it work](#see-it-work) from the eval recordings; run it after re-recording (`npm test` fails until you do) |
+| `npm run readme:gif` | Re-records the simulator GIF above (`assets/sim-hold.gif`). Needs `asciinema` and `agg`; run it after changing what the sim prints |
 | `npm run dev` | Run the server with hot reload (`tsx watch`) |
 | `npm run build` | Type-check and compile to `dist/` |
 | `npm test` | Run the Vitest suite |

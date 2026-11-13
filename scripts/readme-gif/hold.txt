@@ -1,0 +1,9 @@
+# The business's side of the call in README's GIF (npm run readme:gif).
+# A line starting with ~ plays on its own clock, like a hold queue.
+Riverside Auto, can you hold please?
+~Thank you for holding. Your call is important to us.
+~Please stay on the line. The next available associate will be with you shortly.
+~Hi, sorry about the wait, this is Sam. What can I do for you?
+Sure, I can get the car in on {day+2} at 9 in the morning. Want it?
+Done, see you then. Anything else?
+Okay, bye!
