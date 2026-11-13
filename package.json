@@ -23,6 +23,7 @@
     "sim": "tsx scripts/sim.ts",
     "eval": "tsx scripts/eval.ts",
     "readme:showcase": "tsx scripts/showcase/render.ts",
+    "readme:gif": "tsx scripts/readme-gif/record.ts",
     "fixtures:deploy": "tsx scripts/fixtures/deploy.ts",
     "fixtures:call": "tsx scripts/fixtures/run.ts",
     "dav:check": "tsx scripts/dav-check.ts",

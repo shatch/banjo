@@ -398,7 +398,7 @@ npm run sim
 
 ![The sim playing a script: Banjo is put on hold, waits through the hold messages, says it's an AI again to the person who picks up, and books an oil change](assets/sim-hold.gif)
 
-_A scripted run (`--script`, playing the lines starting with `~` as a hold queue); long tool results are shortened._
+_A scripted run (`--script`, playing the lines starting with `~` as a hold queue). The lines starting with `·` are what Banjo does besides talk._
 
 Options: `--business`, `--goal`, `--mode conversation`, `--mode ask` with one or more `--question`
 (checked as `place_call` checks them: 1 to 5, each on one line), `--duration` (booking only), `--transfer` (or `--warm` with `--owner accept|decline|no-answer`), and
@@ -599,6 +599,7 @@ Vitest, Docker.
 | `npm run sim` | Text-mode simulator: type as the business while Banjo calls it. No phone, no real calendar |
 | `npm run eval` | Scenario evals: scripted sim calls against real OpenAI, scored, with cost. Passing runs are recorded and replayed free in `npm test` (see `docs/ARCHITECTURE.md`) |
 | `npm run readme:showcase` | Regenerates [See it work](#see-it-work) from the eval recordings; run it after re-recording (`npm test` fails until you do) |
+| `npm run readme:gif` | Re-records the simulator GIF above (`assets/sim-hold.gif`). Needs `asciinema` and `agg`; run it after changing what the sim prints |
 | `npm run dev` | Run the server with hot reload (`tsx watch`) |
 | `npm run build` | Type-check and compile to `dist/` |
 | `npm test` | Run the Vitest suite |
