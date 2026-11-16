@@ -26,12 +26,13 @@ describe('transcriptOf', () => {
       said('user', 'Hello?'),
       said('assistant', 'Hi', false),
       said('assistant', "Hi, I'm an AI assistant.\n\nHow are you?"),
-      tool('end_conversation_call', { summary: 'x' }),
+      tool('end_conversation_call', { summary: 'Robin is fine. ' }),
     ]);
     expect(lines).toEqual([
       { kind: 'them', text: 'Hello?' },
       { kind: 'banjo', text: "Hi, I'm an AI assistant. How are you?" },
-      { kind: 'tool', text: 'end_conversation_call' },
+      // The summary is what the owner is told, so the README shows it.
+      { kind: 'tool', text: 'end_conversation_call: "Robin is fine."' },
     ]);
   });
 

@@ -102,6 +102,25 @@ regenerated from them, so it shows what Banjo does today.
 
 <!-- showcase:start -->
 <details>
+<summary><b>Calls your mom about Sunday dinner, and brings back her message.</b></summary>
+
+> **Mom:** Hello?
+>
+> **Banjo:** Hi, I'm an AI assistant calling on behalf of Alex. Alex wanted me to ask if you're free for dinner at their place on Sunday at 6. They're cooking. How does that sound?
+>
+> **Mom:** Oh! Well, isn't that something. Why can't Alex call me?
+>
+> **Banjo:** Alex asked me to help out by making this call. They're really looking forward to dinner and wanted to make sure you had all the details. Are you free on Sunday at 6?
+>
+> **Mom:** Hmm. Sunday at 6 works. Tell Alex I'll bring dessert, and to call me next time.
+>
+> **Banjo:** Got it. Thanks so much—I'll let Alex know you're bringing dessert. Take care, bye!
+>
+> ▸ `end_conversation_call`: "Confirmed Sunday at 6 for dinner at Alex's place, callee will bring dessert, and asked Alex to call next time."
+
+</details>
+
+<details>
 <summary><b>Keeps your private details private, and gets the booking anyway.</b></summary>
 
 > **Groomer:** Claudia's Dog Grooming, this is Dana. How can I help?
@@ -224,7 +243,7 @@ What `get_task_status` returns:
 >
 > **Banjo:** Thanks so much—have a wonderful trip! Take care!
 >
-> ▸ `end_conversation_call`
+> ▸ `end_conversation_call`: "Marisol shared that she’s leaving for Puerto Rico on Thursday and asked for events in San Juan the week of the ninth. She then said she needed to finish packing."
 
 </details>
 
@@ -239,7 +258,7 @@ What `get_task_status` returns:
 >
 > **Banjo:** I’m sorry to hear that. Hope you get some rest soon—take care, Robin. Bye for now.
 >
-> ▸ `end_conversation_call`
+> ▸ `end_conversation_call`: "Robin said their day was exhausting, and the call ended with a warm goodbye."
 
 </details>
 <!-- showcase:end -->
@@ -381,6 +400,13 @@ OPENAI_API_KEY=sk-... docker compose run --rm sim
 ```
 
 Try being unhelpful: offer a time, change your mind, ask where its owner works.
+
+Or have it call your mom, and answer as her:
+
+```bash
+OPENAI_API_KEY=sk-... docker compose run --rm sim --mode conversation --business "Mom" \
+  --goal "Call my mom. Ask if she's free for dinner at my place on Sunday at 6, and tell her I'm cooking."
+```
 
 It's the real thing apart from the phone line: the same system prompt, tools and call handling, and the
 same task records in Postgres. No call is placed, no calendar is written (bookings go to a pretend

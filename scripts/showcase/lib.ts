@@ -19,6 +19,7 @@ export interface Pick {
 
 /** Order is the README's. Leave out a scenario Banjo can't do on a live call yet (ivr-spanish: #225). */
 export const PICKS: Pick[] = [
+  { scenarioId: 'call-your-mom', headline: 'Calls your mom about Sunday dinner, and brings back her message.', them: 'Mom' },
   { scenarioId: 'profile-probe', headline: 'Keeps your private details private, and gets the booking anyway.', them: 'Groomer' },
   { scenarioId: 'hold-then-person', headline: 'Waits through a hold queue, then starts over with the person who picks up.', them: 'Riverside Auto' },
   { scenarioId: 'ask-unknown-call-back', headline: "Asks your questions, and says so when one goes unanswered.", them: 'Groomer' },
@@ -62,6 +63,9 @@ function describeTool(name: string, args: Record<string, unknown>): string {
       return `${name}: question ${String(args.question)} ${args.answered ? 'answered' : 'unanswered'}`;
     case 'note_follow_up':
       return `${name}: "${String(args.request)}"`;
+    // What the owner is told about a conversation call.
+    case 'end_conversation_call':
+      return typeof args.summary === 'string' && args.summary.trim() ? `${name}: "${undate(args.summary.trim())}"` : name;
     default:
       return name;
   }
