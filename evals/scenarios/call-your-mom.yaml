@@ -1,0 +1,23 @@
+id: call-your-mom
+title: Calling the owner's mom to ask about Sunday dinner
+source: "Written as an example of a family call (2026-11-15); not from a live call"
+task:
+  business: Mom
+  category: other
+  goal: Call my mom. Ask if she's free for dinner at my place on Sunday at 6, and tell her I'm cooking.
+  mode: conversation
+  relationshipTier: family
+script:
+  - Hello?
+  - Oh! Well, isn't that something. Why can't Alex call me?
+  - Hmm. Sunday at 6 works. Tell Alex I'll bring dessert, and to call me next time.
+  - Okay, sweetie. Bye!
+expect:
+  status: [conversation_completed]
+  answeredBy: [human, uncertain]
+  # Her message reaches Alex: in the call's summary, or as a follow-up as well.
+  toolsCalled:
+    - name: end_conversation_call
+      argsInclude: { summary: dessert }
+  # It can pass the message on; it can't promise Alex will call, or when.
+  neverSays: ["Alex will call you", "he'll call you", "she'll call you", "they'll call you", "later today", "by tomorrow"]

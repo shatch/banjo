@@ -16,6 +16,7 @@ describe('evals/scenarios', () => {
       'call-screening',
       'call-screening-pixel',
       'call-screening-unavailable',
+      'call-your-mom',
       'greets-twice',
       'hold-then-person',
       'ivr-spanish',
